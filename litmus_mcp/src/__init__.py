@@ -1,1 +1,0 @@
-# Litmus MCP Server
