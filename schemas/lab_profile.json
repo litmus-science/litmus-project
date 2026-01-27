@@ -1,0 +1,379 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://litmus.science/schemas/lab_profile/v1",
+  "title": "Litmus Lab Profile",
+  "description": "Schema for lab/operator directory entries including capabilities, compliance, and deliverables support",
+  "type": "object",
+  "required": ["lab_id", "name", "capabilities", "compliance", "deliverables_support", "status"],
+  "properties": {
+    "lab_id": {
+      "type": "string",
+      "description": "Unique identifier"
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "type": {
+      "type": "string",
+      "enum": ["individual_operator", "academic_core", "commercial_cro", "startup_lab"],
+      "description": "Type of lab/operator"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "paused", "onboarding", "suspended"],
+      "default": "active"
+    },
+    "region": {
+      "type": "string",
+      "description": "Geographic region (ISO 3166-1 alpha-2)"
+    },
+    "timezone": {
+      "type": "string",
+      "description": "IANA timezone"
+    },
+
+    "capabilities": {
+      "type": "object",
+      "required": ["experiment_types"],
+      "properties": {
+        "experiment_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "SANGER_PLASMID_VERIFICATION",
+              "QPCR_EXPRESSION",
+              "CELL_VIABILITY_IC50",
+              "ENZYME_INHIBITION_IC50",
+              "MICROBIAL_GROWTH_MATRIX",
+              "MIC_MBC_ASSAY",
+              "ZONE_OF_INHIBITION",
+              "CUSTOM"
+            ]
+          },
+          "minItems": 1
+        },
+        "menu_tags": {
+          "type": "array",
+          "description": "Fine-grained capability tags",
+          "items": {
+            "type": "string",
+            "enum": [
+              "sanger_standard",
+              "sanger_difficult_templates",
+              "qpcr_sybr",
+              "qpcr_taqman",
+              "qpcr_custom_assays",
+              "viability_celltiter_glo",
+              "viability_mtt",
+              "viability_resazurin",
+              "viability_384_well",
+              "enzyme_colorimetric",
+              "enzyme_fluorometric",
+              "enzyme_kinetics",
+              "microbial_aerobic",
+              "microbial_anaerobic",
+              "microbial_bsl2_pathogens",
+              "mic_broth_microdilution",
+              "mic_agar_dilution",
+              "disk_diffusion"
+            ]
+          }
+        },
+        "instruments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "manufacturer": { "type": "string" },
+              "model": { "type": "string" },
+              "last_calibration": { "type": "string", "format": "date" }
+            }
+          }
+        },
+        "cell_lines_available": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "organisms_available": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "custom_protocol_capable": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+
+    "compliance": {
+      "type": "object",
+      "required": ["max_bsl"],
+      "properties": {
+        "max_bsl": {
+          "type": "string",
+          "enum": ["BSL1", "BSL2"]
+        },
+        "human_samples_approved": {
+          "type": "boolean",
+          "default": false
+        },
+        "animal_samples_approved": {
+          "type": "boolean",
+          "default": false
+        },
+        "hazardous_chemicals_approved": {
+          "type": "boolean",
+          "default": true
+        },
+        "export_control_compliant": {
+          "type": "boolean",
+          "default": true
+        },
+        "certifications": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "institutional_approval_type": {
+          "type": "string",
+          "enum": ["pi_letter", "core_facility_agreement", "commercial_contract", "other"]
+        }
+      }
+    },
+
+    "commercial_terms": {
+      "type": "object",
+      "properties": {
+        "standard_terms_on_file": {
+          "type": "boolean",
+          "default": false
+        },
+        "accepts_purchase_orders": {
+          "type": "boolean",
+          "default": false
+        },
+        "payment_methods": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["credit_card", "ach", "wire", "purchase_order", "crypto"]
+          }
+        },
+        "currency": {
+          "type": "string",
+          "default": "USD"
+        },
+        "pricing_bands": {
+          "type": "object",
+          "description": "Typical price ranges by experiment type",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "min_usd": { "type": "integer" },
+              "max_usd": { "type": "integer" },
+              "typical_usd": { "type": "integer" }
+            }
+          }
+        },
+        "turnaround_days": {
+          "type": "object",
+          "description": "Typical turnaround by experiment type",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "standard": { "type": "integer" },
+              "expedited": { "type": "integer" }
+            }
+          }
+        },
+        "minimum_order_usd": {
+          "type": "integer",
+          "default": 0
+        }
+      }
+    },
+
+    "quality_metrics": {
+      "type": "object",
+      "properties": {
+        "on_time_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Fraction of jobs delivered on time"
+        },
+        "rerun_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Fraction of jobs requiring rerun due to quality issues"
+        },
+        "dispute_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "average_rating": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "total_jobs_completed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "data_package_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Average completeness/quality of delivered data packages"
+        }
+      }
+    },
+
+    "logistics": {
+      "type": "object",
+      "properties": {
+        "shipping_address": {
+          "type": "object",
+          "properties": {
+            "line1": { "type": "string" },
+            "line2": { "type": "string" },
+            "city": { "type": "string" },
+            "state": { "type": "string" },
+            "postal_code": { "type": "string" },
+            "country": { "type": "string" }
+          }
+        },
+        "shipping_modes_accepted": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["AMBIENT", "COLD_PACK", "DRY_ICE", "LIQUID_NITROGEN"]
+          }
+        },
+        "weekend_receiving": {
+          "type": "boolean",
+          "default": false
+        },
+        "hazmat_receiving": {
+          "type": "boolean",
+          "default": false
+        },
+        "fedex_account": {
+          "type": "boolean",
+          "description": "Can receive on requester's FedEx account"
+        }
+      }
+    },
+
+    "deliverables_support": {
+      "type": "object",
+      "description": "What outputs this lab can provide",
+      "properties": {
+        "global": {
+          "type": "object",
+          "description": "Applies to all experiment types",
+          "properties": {
+            "raw_formats": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["CSV", "XLSX", "AB1", "SEQ", "FASTQ", "INSTRUMENT_EXPORT", "IMAGE_FILES", "PDF_REPORT", "JSON"]
+              }
+            },
+            "processed_outputs": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "QC_SUMMARY",
+                  "ANALYSIS_NOTEBOOK"
+                ]
+              }
+            },
+            "max_package_level": {
+              "type": "string",
+              "enum": ["L0_RAW_ONLY", "L1_BASIC_QC", "L2_INTERPRETATION"]
+            }
+          }
+        },
+        "by_experiment_type": {
+          "type": "object",
+          "description": "Override or extend global settings per experiment type",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "raw_formats": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "processed_outputs": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "max_package_level": {
+                "type": "string",
+                "enum": ["L0_RAW_ONLY", "L1_BASIC_QC", "L2_INTERPRETATION"]
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "availability": {
+      "type": "object",
+      "properties": {
+        "current_capacity": {
+          "type": "string",
+          "enum": ["high", "medium", "low", "none"],
+          "description": "Current availability for new jobs"
+        },
+        "vacation_dates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "start": { "type": "string", "format": "date" },
+              "end": { "type": "string", "format": "date" }
+            }
+          }
+        },
+        "max_concurrent_jobs": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+
+    "contact": {
+      "type": "object",
+      "properties": {
+        "primary_email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "preferred_contact_method": {
+          "type": "string",
+          "enum": ["email", "phone", "platform"]
+        },
+        "response_time_hours": {
+          "type": "integer",
+          "description": "Typical response time to inquiries"
+        }
+      }
+    },
+
+    "verification": {
+      "type": "object",
+      "properties": {
+        "identity_verified": { "type": "boolean" },
+        "institution_verified": { "type": "boolean" },
+        "capabilities_verified": { "type": "boolean" },
+        "last_verification_date": { "type": "string", "format": "date" },
+        "verification_notes": { "type": "string" }
+      }
+    }
+  }
+}

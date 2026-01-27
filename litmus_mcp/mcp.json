@@ -1,0 +1,621 @@
+{
+  "name": "litmus-intake-router",
+  "version": "0.1.0",
+  "description": "MCP server for Litmus experiment intake drafting, validation, routing, and submission.",
+  "capabilities": {
+    "resources": true,
+    "tools": true
+  },
+  "resources": [
+    {
+      "uri": "litmus://schemas/experiment_intake",
+      "name": "Experiment Intake JSON Schema",
+      "mimeType": "application/schema+json",
+      "description": "Canonical JSON Schema for experiment intake submissions."
+    },
+    {
+      "uri": "litmus://schemas/lab_profile",
+      "name": "Lab Profile JSON Schema",
+      "mimeType": "application/schema+json",
+      "description": "Canonical JSON Schema for lab directory entries, including deliverables_support."
+    },
+    {
+      "uri": "litmus://taxonomy/deliverables",
+      "name": "Deliverables Taxonomy",
+      "mimeType": "application/json",
+      "description": "Canonical enums/tags for raw formats, processed outputs, and package levels."
+    },
+    {
+      "uri": "litmus://rubric/routing_weights",
+      "name": "Routing Weights",
+      "mimeType": "application/json",
+      "description": "Current weights used by routing.match_labs (optional; can be server-controlled)."
+    }
+  ],
+  "tools": [
+    {
+      "name": "intake.draft_from_text",
+      "description": "Convert free-form user text into a best-effort draft intake JSON that matches the experiment_intake schema.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 20000
+          },
+          "experiment_type_hint": {
+            "type": "string",
+            "enum": [
+              "SANGER_PLASMID_VERIFICATION",
+              "QPCR_EXPRESSION",
+              "CELL_VIABILITY_IC50",
+              "ENZYME_INHIBITION_IC50",
+              "MICROBIAL_GROWTH_MATRIX"
+            ]
+          },
+          "defaults": {
+            "type": "object",
+            "description": "Optional partial intake object to seed missing fields (e.g., default compliance)."
+          },
+          "language": {
+            "type": "string",
+            "description": "Optional language hint for question generation.",
+            "default": "en"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intake",
+          "confidence",
+          "missing_fields"
+        ],
+        "properties": {
+          "intake": {
+            "type": "object",
+            "description": "Draft intake JSON."
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "missing_fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "reason"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "JSON pointer to missing/weak field."
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "required",
+                    "recommended",
+                    "ambiguous"
+                  ]
+                }
+              }
+            }
+          },
+          "suggested_next_questions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10
+          }
+        }
+      }
+    },
+    {
+      "name": "intake.validate",
+      "description": "Validate an intake JSON against the canonical experiment_intake schema and return errors/warnings with JSON pointers.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intake"
+        ],
+        "properties": {
+          "intake": {
+            "type": "object"
+          },
+          "strict": {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, treat warnings as errors based on server policy."
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "valid",
+          "errors",
+          "warnings"
+        ],
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "message"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "message"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "completeness": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Optional: server-computed spec completeness score."
+          }
+        }
+      }
+    },
+    {
+      "name": "intake.suggest_questions",
+      "description": "Given a partial intake JSON, return the minimal set of questions to reach execution-ready completeness (e.g., >=0.7).",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intake"
+        ],
+        "properties": {
+          "intake": {
+            "type": "object"
+          },
+          "target_completeness": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.7
+          },
+          "max_questions": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 3
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "questions"
+        ],
+        "properties": {
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "question",
+                "writes_to"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "question": {
+                  "type": "string"
+                },
+                "writes_to": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                },
+                "answer_type": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "number",
+                    "select",
+                    "multiselect",
+                    "boolean"
+                  ],
+                  "default": "text"
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "routing.match_labs",
+      "description": "Rank labs for a validated intake using hard filters + weighted scoring. Returns top_k matches with flags and deliverables gaps.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intake"
+        ],
+        "properties": {
+          "intake": {
+            "type": "object"
+          },
+          "top_k": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "default": 3
+          },
+          "strict_deliverables": {
+            "type": "boolean",
+            "default": false
+          },
+          "region_preference": {
+            "type": "string",
+            "description": "Optional region filter (e.g., US, EU)."
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "top_matches",
+          "all_matches_count"
+        ],
+        "properties": {
+          "top_matches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "lab_id",
+                "lab_name",
+                "score",
+                "flags"
+              ],
+              "properties": {
+                "lab_id": {
+                  "type": "string"
+                },
+                "lab_name": {
+                  "type": "string"
+                },
+                "score": {
+                  "type": "number"
+                },
+                "score_breakdown": {
+                  "type": "object"
+                },
+                "flags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "deliverables_gaps": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "estimated_tat_days": {
+                  "type": "integer"
+                },
+                "pricing_band_usd": {
+                  "type": "object",
+                  "properties": {
+                    "min": {
+                      "type": "integer"
+                    },
+                    "max": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "all_matches_count": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "labs.search",
+      "description": "Search labs using structured filters (experiment type, BSL, shipping modes, deliverables package level).",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "experiment_type": {
+            "type": "string"
+          },
+          "max_bsl": {
+            "type": "string"
+          },
+          "shipping_mode": {
+            "type": "string",
+            "enum": [
+              "AMBIENT",
+              "COLD_PACK",
+              "DRY_ICE"
+            ]
+          },
+          "minimum_package_level": {
+            "type": "string",
+            "enum": [
+              "L0_RAW_ONLY",
+              "L1_BASIC_QC",
+              "L2_INTERPRETATION"
+            ]
+          },
+          "region": {
+            "type": "string"
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20
+          },
+          "page_token": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "labs"
+        ],
+        "properties": {
+          "labs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "next_page_token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "labs.get",
+      "description": "Fetch a lab profile (redacted unless caller has permission).",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "lab_id"
+        ],
+        "properties": {
+          "lab_id": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "lab"
+        ],
+        "properties": {
+          "lab": {
+            "type": "object"
+          },
+          "redactions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "intake.submit",
+      "description": "Persist a validated intake and return a submission ID and next steps.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intake"
+        ],
+        "properties": {
+          "intake": {
+            "type": "object"
+          },
+          "selected_lab_id": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "submission_id",
+          "status"
+        ],
+        "properties": {
+          "submission_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "RECEIVED",
+              "NEEDS_INFO",
+              "ROUTED",
+              "IN_PROGRESS"
+            ]
+          },
+          "next_steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "files.create_upload_url",
+      "description": "Create a signed upload URL for an attachment (SDS, plate map, protocol).",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "filename",
+          "mime_type",
+          "size_bytes"
+        ],
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200000000
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "file_id",
+          "upload_url"
+        ],
+        "properties": {
+          "file_id": {
+            "type": "string"
+          },
+          "upload_url": {
+            "type": "string"
+          },
+          "expires_in_seconds": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "files.attach_to_intake",
+      "description": "Attach an uploaded file to a draft or submitted intake.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "submission_id",
+          "file_id",
+          "attachment_type"
+        ],
+        "properties": {
+          "submission_id": {
+            "type": "string"
+          },
+          "file_id": {
+            "type": "string"
+          },
+          "attachment_type": {
+            "type": "string",
+            "enum": [
+              "PLATE_MAP",
+              "REFERENCE_SEQUENCE",
+              "PROTOCOL",
+              "SDS",
+              "STRUCTURE_FILE",
+              "MEDIA_RECIPE",
+              "OTHER"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  ]
+}

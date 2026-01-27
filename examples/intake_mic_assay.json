@@ -1,0 +1,80 @@
+{
+  "experiment_type": "MIC_MBC_ASSAY",
+  "title": "Antibacterial MIC of rosemary extract against E. coli",
+  "hypothesis": {
+    "statement": "Rosemary extract inhibits E. coli ATCC 25922 growth with MIC ≤ 500 μg/mL",
+    "null_hypothesis": "Rosemary extract has no antibacterial activity against E. coli (MIC > 2000 μg/mL)",
+    "why_interesting": "Testing traditional antibacterial claims with standardized methods"
+  },
+  "compliance": {
+    "bsl": "BSL1",
+    "human_derived_material": false,
+    "animal_derived_material": false,
+    "hazardous_chemicals": false
+  },
+  "turnaround_budget": {
+    "desired_turnaround_days": 10,
+    "budget_max_usd": 250,
+    "budget_flexibility": "strict",
+    "priority": "standard"
+  },
+  "deliverables": {
+    "raw_data_formats": ["CSV", "IMAGE_FILES"],
+    "required_processed_outputs": ["MIC_VALUE", "QC_SUMMARY"],
+    "minimum_package_level": "L1_BASIC_QC",
+    "photo_documentation": "key_steps"
+  },
+  "privacy": "open",
+  "materials_provided": [
+    {
+      "name": "Rosemary extract powder",
+      "specification": "Hot water extract, lyophilized",
+      "quantity": { "value": 500, "unit": "mg" },
+      "storage_requirements": "-20°C, desiccated",
+      "hazardous": false
+    }
+  ],
+  "replicates": {
+    "technical": 3,
+    "biological": 2
+  },
+  "acceptance_criteria": {
+    "success_conditions": [
+      {
+        "metric": "MIC",
+        "operator": "lte",
+        "threshold": 500,
+        "unit": "μg/mL"
+      }
+    ],
+    "failure_conditions": [
+      {
+        "condition": "No growth inhibition at 2000 μg/mL",
+        "interpretation": "Extract is inactive against E. coli"
+      },
+      {
+        "condition": "Positive control (ampicillin) fails",
+        "interpretation": "Assay technical failure"
+      }
+    ]
+  },
+  "mic_mbc": {
+    "organism": "Escherichia coli",
+    "strain": "ATCC 25922",
+    "organism_source": "ATCC",
+    "medium": "Mueller-Hinton broth",
+    "compound_name": "Rosemary extract",
+    "concentration_range": {
+      "min": 15.6,
+      "max": 2000,
+      "unit": "μg/mL",
+      "dilution_series": "2-fold"
+    },
+    "inoculum_cfu_ml": 500000,
+    "incubation_hours": 18,
+    "incubation_temperature_c": 37,
+    "positive_control_antibiotic": "Ampicillin",
+    "determine_mbc": false,
+    "method": "broth_microdilution"
+  }
+}

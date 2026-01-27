@@ -1,0 +1,105 @@
+{
+  "experiment_type": "ENZYME_INHIBITION_IC50",
+  "title": "Compound Z inhibition of beta-galactosidase",
+  "hypothesis": {
+    "statement": "Compound Z inhibits E. coli β-galactosidase with IC50 ≤ 50μM using ONPG as substrate",
+    "null_hypothesis": "Compound Z has no significant inhibitory effect on β-galactosidase (IC50 > 500μM)",
+    "why_interesting": "Compound Z is a novel galactose analog identified from virtual screening. Validating β-gal inhibition will support the predicted binding mode."
+  },
+  "compliance": {
+    "bsl": "BSL1",
+    "human_derived_material": false,
+    "animal_derived_material": false,
+    "hazardous_chemicals": false
+  },
+  "turnaround_budget": {
+    "desired_turnaround_days": 10,
+    "budget_max_usd": 350,
+    "budget_flexibility": "flexible_25",
+    "priority": "standard"
+  },
+  "deliverables": {
+    "raw_data_formats": ["CSV", "XLSX"],
+    "required_processed_outputs": ["IC50_CURVE_FIT", "KINETIC_PARAMETERS", "QC_SUMMARY"],
+    "minimum_package_level": "L2_INTERPRETATION",
+    "photo_documentation": "key_steps",
+    "lab_notebook_scan": true
+  },
+  "privacy": "open",
+  "materials_provided": [
+    {
+      "name": "Compound Z",
+      "specification": "≥98% purity, 10mM stock in water",
+      "quantity": { "value": 200, "unit": "μL" },
+      "storage_requirements": "-20°C",
+      "hazardous": false
+    }
+  ],
+  "replicates": {
+    "technical": 3,
+    "biological": 1
+  },
+  "acceptance_criteria": {
+    "success_conditions": [
+      {
+        "metric": "IC50",
+        "operator": "lte",
+        "threshold": 50,
+        "unit": "μM"
+      },
+      {
+        "metric": "Maximum inhibition at 1mM",
+        "operator": "gte",
+        "threshold": 70,
+        "unit": "%"
+      }
+    ],
+    "failure_conditions": [
+      {
+        "condition": "No inhibition at 1mM compound",
+        "interpretation": "Compound is inactive against this enzyme"
+      },
+      {
+        "condition": "Compound precipitates in assay buffer",
+        "interpretation": "Solubility-limited - cannot determine true IC50"
+      },
+      {
+        "condition": "Positive control (IPTG) IC50 differs >3-fold from literature",
+        "interpretation": "Assay conditions may not be optimal"
+      }
+    ],
+    "statistical_requirements": {
+      "significance_level": 0.05
+    }
+  },
+  "enzyme_inhibition": {
+    "target_enzyme": "β-galactosidase",
+    "enzyme_source": "E. coli, Sigma G4155",
+    "enzyme_concentration": {
+      "value": 0.5,
+      "unit": "U/mL"
+    },
+    "assay_type": "COLORIMETRIC",
+    "substrate": "ONPG (o-Nitrophenyl-β-D-galactopyranoside)",
+    "substrate_concentration": {
+      "value": 4,
+      "unit": "mM"
+    },
+    "inhibitor_name": "Compound Z",
+    "inhibitor_concentrations": [
+      { "value": 0, "unit": "μM" },
+      { "value": 0.1, "unit": "μM" },
+      { "value": 1, "unit": "μM" },
+      { "value": 10, "unit": "μM" },
+      { "value": 50, "unit": "μM" },
+      { "value": 100, "unit": "μM" },
+      { "value": 500, "unit": "μM" },
+      { "value": 1000, "unit": "μM" }
+    ],
+    "incubation_time_minutes": 30,
+    "incubation_temperature_c": 37,
+    "buffer": "Z-buffer, pH 7.0",
+    "detection_wavelength_nm": 420,
+    "positive_control_inhibitor": "IPTG"
+  }
+}

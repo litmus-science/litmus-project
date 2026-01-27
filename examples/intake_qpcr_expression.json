@@ -1,0 +1,97 @@
+{
+  "experiment_type": "QPCR_EXPRESSION",
+  "title": "GAPDH and ACTB expression in treated HeLa cells",
+  "hypothesis": {
+    "statement": "Treatment with 10μM Compound Y decreases GAPDH expression by ≥50% relative to ACTB in HeLa cells after 24h",
+    "null_hypothesis": "Treatment with Compound Y has no significant effect on GAPDH expression relative to ACTB",
+    "why_interesting": "Preliminary RNA-seq data suggests Compound Y affects glycolytic gene expression. This qPCR validation will confirm the finding with higher precision."
+  },
+  "compliance": {
+    "bsl": "BSL1",
+    "human_derived_material": false,
+    "animal_derived_material": false,
+    "hazardous_chemicals": true,
+    "sds_attached": true
+  },
+  "turnaround_budget": {
+    "desired_turnaround_days": 14,
+    "budget_max_usd": 400,
+    "budget_flexibility": "flexible_10",
+    "priority": "standard"
+  },
+  "deliverables": {
+    "raw_data_formats": ["CSV", "XLSX"],
+    "required_processed_outputs": ["CT_TABLE", "DDCT_FOLD_CHANGE", "AMPLIFICATION_PLOTS", "QC_SUMMARY"],
+    "minimum_package_level": "L2_INTERPRETATION",
+    "photo_documentation": "none",
+    "lab_notebook_scan": true
+  },
+  "privacy": "delayed_6mo",
+  "materials_provided": [
+    {
+      "name": "HeLa cells (treated and control)",
+      "specification": "Cells in TRIzol, 3 replicates each condition",
+      "quantity": { "value": 6, "unit": "tubes" },
+      "storage_requirements": "-80°C",
+      "hazardous": true
+    }
+  ],
+  "replicates": {
+    "technical": 3,
+    "biological": 3
+  },
+  "acceptance_criteria": {
+    "success_conditions": [
+      {
+        "metric": "GAPDH fold change (treated vs control)",
+        "operator": "lte",
+        "threshold": 0.5,
+        "unit": "fold"
+      }
+    ],
+    "failure_conditions": [
+      {
+        "condition": "ACTB expression varies >2-fold between samples",
+        "interpretation": "RNA quality or normalization issue"
+      },
+      {
+        "condition": "Technical replicate CV >15%",
+        "interpretation": "Poor pipetting precision"
+      },
+      {
+        "condition": "Amplification efficiency <90% or >110%",
+        "interpretation": "Primer issues - results may not be quantitative"
+      }
+    ],
+    "statistical_requirements": {
+      "significance_level": 0.05,
+      "test": "t_test"
+    }
+  },
+  "qpcr": {
+    "chemistry": "SYBR_GREEN",
+    "targets": [
+      {
+        "gene_symbol": "GAPDH",
+        "assay_id": "Hs02786624_g1",
+        "primer_sequences": {
+          "forward": "ACCCACTCCTCCACCTTTGAC",
+          "reverse": "TGTTGCTGTAGCCAAATTCGTT"
+        }
+      }
+    ],
+    "housekeeping_genes": ["ACTB"],
+    "sample_type": "RNA",
+    "number_of_samples": 6,
+    "conditions": [
+      {
+        "name": "Control",
+        "description": "DMSO vehicle, 24h"
+      },
+      {
+        "name": "Treated",
+        "description": "10μM Compound Y, 24h"
+      }
+    ]
+  }
+}

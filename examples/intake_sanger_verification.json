@@ -1,0 +1,100 @@
+{
+  "experiment_type": "SANGER_PLASMID_VERIFICATION",
+  "title": "Verify GFP-Fusion construct sequence",
+  "hypothesis": {
+    "statement": "The cloned GFP-fusion plasmid contains the correct insert sequence with no mutations in the junction regions",
+    "null_hypothesis": "The plasmid contains mutations, deletions, or incorrect sequences at the cloning junctions",
+    "why_interesting": "This construct will be used for protein localization studies. Sequence verification is essential before proceeding with transfection experiments."
+  },
+  "compliance": {
+    "bsl": "BSL1",
+    "human_derived_material": false,
+    "animal_derived_material": false,
+    "hazardous_chemicals": false
+  },
+  "turnaround_budget": {
+    "desired_turnaround_days": 7,
+    "budget_max_usd": 120,
+    "budget_flexibility": "strict",
+    "priority": "standard"
+  },
+  "deliverables": {
+    "raw_data_formats": ["AB1", "SEQ"],
+    "required_processed_outputs": ["ALIGNMENT_VS_REFERENCE", "QC_SUMMARY"],
+    "minimum_package_level": "L1_BASIC_QC",
+    "photo_documentation": "none"
+  },
+  "privacy": "open",
+  "materials_provided": [
+    {
+      "name": "pEGFP-C1-MyGene plasmid",
+      "specification": "Miniprep, ~200 ng/μL in TE buffer",
+      "quantity": { "value": 20, "unit": "μL" },
+      "storage_requirements": "-20°C",
+      "hazardous": false
+    }
+  ],
+  "replicates": {
+    "technical": 1,
+    "biological": 1
+  },
+  "acceptance_criteria": {
+    "success_conditions": [
+      {
+        "metric": "Sequence identity to reference",
+        "operator": "eq",
+        "threshold": 100,
+        "unit": "%"
+      }
+    ],
+    "failure_conditions": [
+      {
+        "condition": "Any point mutations in the insert",
+        "interpretation": "Construct may have PCR-introduced errors"
+      },
+      {
+        "condition": "Sequence quality score <20 in regions of interest",
+        "interpretation": "Poor sequencing quality - may need to repeat with fresh DNA"
+      },
+      {
+        "condition": "Unexpected insertions or deletions",
+        "interpretation": "Cloning failed - need to reclone"
+      }
+    ]
+  },
+  "sanger": {
+    "template_type": "plasmid",
+    "template_concentration_ng_ul": 200,
+    "primers": [
+      {
+        "name": "CMV-F",
+        "sequence": "CGCAAATGGGCGGTAGGCGTG",
+        "provided_by": "operator"
+      },
+      {
+        "name": "EGFP-N",
+        "sequence": "CGTCGCCGTCCAGCTCGACCAG",
+        "provided_by": "operator"
+      },
+      {
+        "name": "MyGene-internal-F",
+        "sequence": "ATGCCTGAAGCTGTCATCGG",
+        "provided_by": "requester"
+      }
+    ],
+    "expected_insert_size_bp": 1200,
+    "reference_sequence_attached": true,
+    "regions_of_interest": [
+      {
+        "name": "5' cloning junction",
+        "start_bp": 680,
+        "end_bp": 750
+      },
+      {
+        "name": "3' cloning junction",
+        "start_bp": 1850,
+        "end_bp": 1920
+      }
+    ]
+  }
+}

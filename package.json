@@ -1,0 +1,32 @@
+{
+  "name": "litmus-project",
+  "version": "0.1.0",
+  "description": "AI Wet Lab Validation Marketplace - Schemas, Router, and MCP Integration",
+  "type": "module",
+  "main": "router/router.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint router/*.ts",
+    "validate:schemas": "ajv validate -s schemas/experiment_intake.json -d 'examples/intake_*.json'",
+    "validate:examples": "npm run validate:schemas && ajv validate -s schemas/lab_profile.json -d 'examples/lab_profile_*.json'"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ajv-cli": "^5.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  },
+  "keywords": [
+    "litmus",
+    "wet-lab",
+    "science",
+    "marketplace",
+    "mcp",
+    "ai"
+  ],
+  "license": "Apache-2.0",
+  "private": true
+}

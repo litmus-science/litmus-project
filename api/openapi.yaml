@@ -1,0 +1,1361 @@
+openapi: 3.1.0
+info:
+  title: Litmus Science API
+  description: |
+    API for the Litmus wet lab validation marketplace. Enables programmatic submission
+    of experiment requests, status tracking, and results retrieval.
+    
+    ## Authentication
+    All endpoints require a Bearer token in the Authorization header.
+    Tokens are issued via the dashboard or OAuth flow.
+    
+    ## Rate Limits
+    - Standard tier: 100 requests/minute, 1000 requests/day
+    - Pro tier: 1000 requests/minute, 10000 requests/day
+    - AI Agent tier: 500 requests/minute, 5000 requests/day
+    
+    ## Webhooks
+    For automated pipelines, configure webhook URLs in experiment submissions
+    to receive real-time status updates.
+  version: 1.0.0
+  contact:
+    name: Litmus API Support
+    email: api@litmus.science
+    url: https://docs.litmus.science
+  license:
+    name: Proprietary
+    url: https://litmus.science/terms
+
+servers:
+  - url: https://api.litmus.science/v1
+    description: Production
+  - url: https://api.staging.litmus.science/v1
+    description: Staging (for testing)
+  - url: https://api.sandbox.litmus.science/v1
+    description: Sandbox (mock responses, no billing)
+
+tags:
+  - name: Experiments
+    description: Create, manage, and track experiment requests
+  - name: Templates
+    description: Browse and retrieve standard protocol templates
+  - name: Results
+    description: Access experiment results and data
+  - name: Operators
+    description: Operator-facing endpoints for claiming and executing jobs
+  - name: Validation
+    description: Validate submissions without creating experiments
+  - name: Webhooks
+    description: Webhook configuration and testing
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+paths:
+  /experiments:
+    post:
+      operationId: createExperiment
+      summary: Submit a new experiment request
+      description: |
+        Creates a new experiment request. The request is validated against the schema,
+        checked for safety compliance, and queued for operator matching.
+        
+        Returns immediately with experiment ID. Use webhooks or polling for status updates.
+      tags:
+        - Experiments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentRequest'
+            examples:
+              enzyme_inhibition:
+                summary: Enzyme inhibition assay
+                value:
+                  hypothesis:
+                    statement: "Compound X inhibits enzyme Y activity by at least 50% at 10μM"
+                    null_hypothesis: "Compound X has no significant effect on enzyme Y at 10μM"
+                    variables:
+                      independent:
+                        - name: "Compound X concentration"
+                          values:
+                            - { value: 0, unit: "μM", is_control: true }
+                            - { value: 1, unit: "μM" }
+                            - { value: 10, unit: "μM" }
+                            - { value: 100, unit: "μM" }
+                      dependent:
+                        - name: "Enzyme Y activity"
+                          measurement_method: "Colorimetric assay at 405nm"
+                          unit: "% of control"
+                  protocol:
+                    type: "standard_template"
+                    template_id: "enzyme-inhibition-colorimetric-v1"
+                    template_parameters:
+                      enzyme: "Enzyme Y"
+                      substrate: "pNPP"
+                      incubation_time_minutes: 30
+                  acceptance_criteria:
+                    success_conditions:
+                      - metric: "IC50"
+                        operator: "lte"
+                        threshold: 10
+                        unit: "μM"
+                  constraints:
+                    budget_max_usd: 500
+                    bsl_level: "BSL-1"
+                    privacy: "open"
+      responses:
+        '201':
+          description: Experiment created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentCreatedResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '402':
+          description: Insufficient funds or payment required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Experiment rejected (safety review or prohibited category)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SafetyRejection'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+    get:
+      operationId: listExperiments
+      summary: List experiments
+      description: Returns a paginated list of experiments for the authenticated user/organization.
+      tags:
+        - Experiments
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, pending_review, open, claimed, in_progress, completed, disputed, cancelled]
+        - name: created_after
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: created_before
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          schema:
+            type: string
+          description: Pagination cursor from previous response
+      responses:
+        '200':
+          description: List of experiments
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentListResponse'
+
+  /experiments/{experiment_id}:
+    get:
+      operationId: getExperiment
+      summary: Get experiment details
+      tags:
+        - Experiments
+      parameters:
+        - $ref: '#/components/parameters/ExperimentId'
+      responses:
+        '200':
+          description: Experiment details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Experiment'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    patch:
+      operationId: updateExperiment
+      summary: Update experiment (limited fields)
+      description: |
+        Update allowed fields on an experiment. Only certain fields can be modified
+        depending on experiment status:
+        - `draft`: All fields
+        - `pending_review`: Communication preferences only
+        - `open`: Budget (increase only), turnaround, communication preferences
+        - `claimed` or later: Communication preferences only
+      tags:
+        - Experiments
+      parameters:
+        - $ref: '#/components/parameters/ExperimentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentUpdate'
+      responses:
+        '200':
+          description: Experiment updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Experiment'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Update not allowed in current status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      operationId: cancelExperiment
+      summary: Cancel experiment
+      description: |
+        Cancel an experiment. Refund policy depends on status:
+        - `draft`, `pending_review`, `open`: Full refund
+        - `claimed`: Partial refund (minus operator compensation for time spent)
+        - `in_progress`: No refund (dispute required)
+      tags:
+        - Experiments
+      parameters:
+        - $ref: '#/components/parameters/ExperimentId'
+        - name: reason
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 500
+      responses:
+        '200':
+          description: Experiment cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  experiment_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [cancelled]
+                  refund_amount_usd:
+                    type: number
+                  refund_status:
+                    type: string
+                    enum: [processed, pending, none]
+        '409':
+          description: Cannot cancel in current status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /experiments/{experiment_id}/results:
+    get:
+      operationId: getExperimentResults
+      summary: Get experiment results
+      description: |
+        Retrieve results for a completed experiment. Includes structured data,
+        raw data file URLs, and operator notes.
+      tags:
+        - Results
+      parameters:
+        - $ref: '#/components/parameters/ExperimentId'
+      responses:
+        '200':
+          description: Experiment results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentResults'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          description: Experiment not yet completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /experiments/{experiment_id}/approve:
+    post:
+      operationId: approveResults
+      summary: Approve experiment results
+      description: |
+        Approve the results and release payment to operator.
+        This action is final and cannot be undone.
+      tags:
+        - Results
+      parameters:
+        - $ref: '#/components/parameters/ExperimentId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rating:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                  description: Operator rating (1-5 stars)
+                feedback:
+                  type: string
+                  maxLength: 2000
+                  description: Optional feedback for operator
+      responses:
+        '200':
+          description: Results approved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  experiment_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [completed]
+                  payment_released:
+                    type: boolean
+
+  /experiments/{experiment_id}/dispute:
+    post:
+      operationId: disputeResults
+      summary: Dispute experiment results
+      description: |
+        Open a dispute for experiment results. Payment remains in escrow
+        until dispute is resolved by platform arbitration.
+      tags:
+        - Results
+      parameters:
+        - $ref: '#/components/parameters/ExperimentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - reason
+                - description
+              properties:
+                reason:
+                  type: string
+                  enum:
+                    - results_incomplete
+                    - results_incorrect
+                    - protocol_not_followed
+                    - documentation_insufficient
+                    - other
+                description:
+                  type: string
+                  minLength: 50
+                  maxLength: 5000
+                evidence_urls:
+                  type: array
+                  items:
+                    type: string
+                    format: uri
+      responses:
+        '200':
+          description: Dispute opened
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dispute_id:
+                    type: string
+                  experiment_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [disputed]
+
+  /validate:
+    post:
+      operationId: validateExperiment
+      summary: Validate experiment without submitting
+      description: |
+        Validates an experiment specification against the schema and safety rules
+        without creating an experiment or charging. Use this for dry-run testing
+        in automated pipelines.
+      tags:
+        - Validation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentRequest'
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResult'
+
+  /validate/hypothesis:
+    post:
+      operationId: validateHypothesis
+      summary: Validate hypothesis structure only
+      description: |
+        Lightweight validation of just the hypothesis section. Useful for
+        tutorial flows where you want to validate incrementally.
+      tags:
+        - Validation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HypothesisSection'
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResult'
+
+  /estimate:
+    post:
+      operationId: estimateCost
+      summary: Get cost and time estimate
+      description: |
+        Returns estimated cost and turnaround time for an experiment
+        without creating it. Estimates are non-binding.
+      tags:
+        - Validation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentRequest'
+      responses:
+        '200':
+          description: Cost estimate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostEstimate'
+
+  /templates:
+    get:
+      operationId: listTemplates
+      summary: List available protocol templates
+      description: Returns all standard protocol templates available on the platform.
+      tags:
+        - Templates
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [biochemistry, microbiology, cell_biology, molecular_biology, analytical]
+        - name: bsl_level
+          in: query
+          schema:
+            type: string
+            enum: [BSL-1, BSL-2]
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Full-text search in template names and descriptions
+      responses:
+        '200':
+          description: List of templates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  templates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TemplateListItem'
+
+  /templates/{template_id}:
+    get:
+      operationId: getTemplate
+      summary: Get template details
+      description: |
+        Returns full template specification including required parameters,
+        default values, and estimated costs.
+      tags:
+        - Templates
+      parameters:
+        - name: template_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Template details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Template'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /webhooks/test:
+    post:
+      operationId: testWebhook
+      summary: Send test webhook
+      description: Sends a test webhook payload to verify your endpoint configuration.
+      tags:
+        - Webhooks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+                  format: uri
+                event_type:
+                  type: string
+                  enum: [claimed, started, milestone, completed, issue, results_ready]
+                  default: completed
+      responses:
+        '200':
+          description: Test webhook sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  response_code:
+                    type: integer
+                  response_time_ms:
+                    type: integer
+
+  # Operator endpoints
+  /operator/jobs:
+    get:
+      operationId: listAvailableJobs
+      summary: List available jobs for operators
+      description: |
+        Returns experiments available for claiming based on operator's
+        verified capabilities and location.
+      tags:
+        - Operators
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: max_budget
+          in: query
+          schema:
+            type: number
+        - name: min_budget
+          in: query
+          schema:
+            type: number
+      responses:
+        '200':
+          description: Available jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/JobListItem'
+
+  /operator/jobs/{experiment_id}/claim:
+    post:
+      operationId: claimJob
+      summary: Claim an experiment for execution
+      description: |
+        Claim an experiment. Operator must confirm they have required
+        equipment and authorization before claiming.
+      tags:
+        - Operators
+      parameters:
+        - $ref: '#/components/parameters/ExperimentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - equipment_confirmation
+                - authorization_confirmation
+                - estimated_start_date
+              properties:
+                equipment_confirmation:
+                  type: boolean
+                  description: Confirm access to required equipment
+                authorization_confirmation:
+                  type: boolean
+                  description: Confirm authorization to perform external work
+                estimated_start_date:
+                  type: string
+                  format: date
+                notes:
+                  type: string
+                  maxLength: 1000
+      responses:
+        '200':
+          description: Job claimed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  experiment_id:
+                    type: string
+                  claimed_at:
+                    type: string
+                    format: date-time
+                  deadline:
+                    type: string
+                    format: date-time
+        '409':
+          description: Job already claimed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /operator/jobs/{experiment_id}/submit:
+    post:
+      operationId: submitResults
+      summary: Submit experiment results
+      tags:
+        - Operators
+      parameters:
+        - $ref: '#/components/parameters/ExperimentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResultSubmission'
+      responses:
+        '200':
+          description: Results submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  experiment_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [pending_approval]
+                  submitted_at:
+                    type: string
+                    format: date-time
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  parameters:
+    ExperimentId:
+      name: experiment_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RateLimitError:
+      description: Rate limit exceeded
+      headers:
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+        X-RateLimit-Reset:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    ExperimentRequest:
+      $ref: 'https://litmus.science/schemas/experiment/v1'
+      description: Full experiment specification (see JSON Schema)
+
+    HypothesisSection:
+      type: object
+      required:
+        - statement
+        - null_hypothesis
+        - variables
+      properties:
+        statement:
+          type: string
+        null_hypothesis:
+          type: string
+        rationale:
+          type: string
+        variables:
+          type: object
+          properties:
+            independent:
+              type: array
+              items:
+                type: object
+            dependent:
+              type: array
+              items:
+                type: object
+            controlled:
+              type: array
+              items:
+                type: object
+
+    ExperimentCreatedResponse:
+      type: object
+      properties:
+        experiment_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending_review, open]
+        created_at:
+          type: string
+          format: date-time
+        estimated_cost_usd:
+          type: number
+        estimated_turnaround_days:
+          type: integer
+        links:
+          type: object
+          properties:
+            self:
+              type: string
+              format: uri
+            results:
+              type: string
+              format: uri
+            cancel:
+              type: string
+              format: uri
+
+    Experiment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [draft, pending_review, open, claimed, in_progress, completed, disputed, cancelled]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        claimed_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        specification:
+          $ref: '#/components/schemas/ExperimentRequest'
+        operator:
+          type: object
+          properties:
+            id:
+              type: string
+            reputation_score:
+              type: number
+            completed_experiments:
+              type: integer
+        cost:
+          type: object
+          properties:
+            estimated_usd:
+              type: number
+            final_usd:
+              type: number
+            payment_status:
+              type: string
+              enum: [pending, escrowed, released, refunded]
+
+    ExperimentUpdate:
+      type: object
+      properties:
+        constraints:
+          type: object
+          properties:
+            budget_max_usd:
+              type: number
+            turnaround_days:
+              type: integer
+        communication_preferences:
+          type: object
+          properties:
+            webhook_url:
+              type: string
+              format: uri
+            notification_events:
+              type: array
+              items:
+                type: string
+
+    ExperimentListResponse:
+      type: object
+      properties:
+        experiments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Experiment'
+        pagination:
+          type: object
+          properties:
+            total:
+              type: integer
+            cursor:
+              type: string
+            has_more:
+              type: boolean
+
+    ExperimentResults:
+      type: object
+      properties:
+        experiment_id:
+          type: string
+        status:
+          type: string
+          enum: [completed, disputed]
+        hypothesis_supported:
+          type: boolean
+          description: Whether the data supports the hypothesis
+        confidence_level:
+          type: string
+          enum: [high, medium, low, inconclusive]
+        summary:
+          type: string
+          description: Plain-language summary of results
+        structured_data:
+          type: object
+          properties:
+            measurements:
+              type: array
+              items:
+                type: object
+                properties:
+                  metric:
+                    type: string
+                  value:
+                    type: number
+                  unit:
+                    type: string
+                  condition:
+                    type: string
+            statistics:
+              type: object
+              properties:
+                test_used:
+                  type: string
+                p_value:
+                  type: number
+                effect_size:
+                  type: number
+                confidence_interval:
+                  type: object
+                  properties:
+                    lower:
+                      type: number
+                    upper:
+                      type: number
+        raw_data_files:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              format:
+                type: string
+              url:
+                type: string
+                format: uri
+              checksum_sha256:
+                type: string
+        documentation:
+          type: object
+          properties:
+            photos:
+              type: array
+              items:
+                type: object
+                properties:
+                  step:
+                    type: integer
+                  url:
+                    type: string
+                    format: uri
+                  timestamp:
+                    type: string
+                    format: date-time
+            lab_notebook_url:
+              type: string
+              format: uri
+        operator_notes:
+          type: string
+
+    ResultSubmission:
+      type: object
+      required:
+        - hypothesis_supported
+        - measurements
+        - documentation
+      properties:
+        hypothesis_supported:
+          type: boolean
+        confidence_level:
+          type: string
+          enum: [high, medium, low, inconclusive]
+        summary:
+          type: string
+          maxLength: 5000
+        measurements:
+          type: array
+          items:
+            type: object
+            required:
+              - metric
+              - value
+            properties:
+              metric:
+                type: string
+              value:
+                type: number
+              unit:
+                type: string
+              condition:
+                type: string
+              replicate:
+                type: integer
+        statistics:
+          type: object
+          properties:
+            test_used:
+              type: string
+            p_value:
+              type: number
+            effect_size:
+              type: number
+        raw_data_uploads:
+          type: array
+          items:
+            type: object
+            required:
+              - name
+              - content_base64
+            properties:
+              name:
+                type: string
+              format:
+                type: string
+              content_base64:
+                type: string
+        documentation:
+          type: object
+          required:
+            - photos
+          properties:
+            photos:
+              type: array
+              minItems: 1
+              items:
+                type: object
+                required:
+                  - step
+                  - image_base64
+                properties:
+                  step:
+                    type: integer
+                  image_base64:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+                  caption:
+                    type: string
+            lab_notebook_base64:
+              type: string
+        notes:
+          type: string
+          maxLength: 5000
+
+    ValidationResult:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+                description: JSON path to the error (e.g., "hypothesis.variables.independent[0].values")
+              code:
+                type: string
+                enum:
+                  - required_field_missing
+                  - invalid_type
+                  - invalid_format
+                  - value_out_of_range
+                  - safety_violation
+                  - protocol_error
+                  - incompatible_values
+              message:
+                type: string
+              suggestion:
+                type: string
+        warnings:
+          type: array
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+              code:
+                type: string
+              message:
+                type: string
+        safety_flags:
+          type: array
+          items:
+            type: string
+            enum:
+              - requires_review
+              - prohibited_category
+              - controlled_substance
+              - bsl_level_exceeded
+
+    CostEstimate:
+      type: object
+      properties:
+        estimated_cost_usd:
+          type: object
+          properties:
+            low:
+              type: number
+            typical:
+              type: number
+            high:
+              type: number
+        estimated_turnaround_days:
+          type: object
+          properties:
+            standard:
+              type: integer
+            expedited:
+              type: integer
+        cost_breakdown:
+          type: object
+          properties:
+            materials:
+              type: number
+            labor:
+              type: number
+            equipment:
+              type: number
+            platform_fee:
+              type: number
+            privacy_premium:
+              type: number
+        operator_availability:
+          type: string
+          enum: [high, medium, low, none]
+          description: Current availability of qualified operators
+
+    Template:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        bsl_level:
+          type: string
+        version:
+          type: string
+        parameters:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+              required:
+                type: boolean
+              default:
+                type: string
+              description:
+                type: string
+              constraints:
+                type: object
+        equipment_required:
+          type: array
+          items:
+            type: string
+        typical_materials:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              typical_quantity:
+                type: string
+        estimated_duration_hours:
+          type: number
+        estimated_cost_usd:
+          type: object
+          properties:
+            min:
+              type: number
+            max:
+              type: number
+        protocol_steps:
+          type: array
+          items:
+            type: object
+            properties:
+              step_number:
+                type: integer
+              action:
+                type: string
+              parameterized:
+                type: boolean
+              parameters_used:
+                type: array
+                items:
+                  type: string
+
+    TemplateListItem:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        bsl_level:
+          type: string
+        estimated_cost_range:
+          type: string
+
+    JobListItem:
+      type: object
+      properties:
+        experiment_id:
+          type: string
+        title:
+          type: string
+        category:
+          type: string
+        budget_usd:
+          type: number
+        deadline:
+          type: string
+          format: date
+        bsl_level:
+          type: string
+        equipment_required:
+          type: array
+          items:
+            type: string
+        posted_at:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum: [validation_failed]
+            message:
+              type: string
+            validation_errors:
+              type: array
+              items:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  code:
+                    type: string
+                  message:
+                    type: string
+
+    SafetyRejection:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum: [safety_rejected]
+            message:
+              type: string
+            flags:
+              type: array
+              items:
+                type: string
+            appeal_available:
+              type: boolean
+            appeal_url:
+              type: string
+              format: uri
+
+webhooks:
+  experimentClaimed:
+    post:
+      summary: Experiment claimed by operator
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event:
+                  type: string
+                  enum: [experiment.claimed]
+                experiment_id:
+                  type: string
+                timestamp:
+                  type: string
+                  format: date-time
+                data:
+                  type: object
+                  properties:
+                    operator_id:
+                      type: string
+                    estimated_completion:
+                      type: string
+                      format: date-time
+      responses:
+        '200':
+          description: Webhook received
+
+  experimentCompleted:
+    post:
+      summary: Experiment completed, results ready
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event:
+                  type: string
+                  enum: [experiment.completed]
+                experiment_id:
+                  type: string
+                timestamp:
+                  type: string
+                  format: date-time
+                data:
+                  type: object
+                  properties:
+                    hypothesis_supported:
+                      type: boolean
+                    results_url:
+                      type: string
+                      format: uri
+      responses:
+        '200':
+          description: Webhook received

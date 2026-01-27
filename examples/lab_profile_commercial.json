@@ -1,0 +1,153 @@
+{
+  "lab_id": "lab_cellassay_pro_001",
+  "name": "CellAssay Pro",
+  "type": "commercial_cro",
+  "status": "active",
+  "region": "US",
+  "timezone": "America/New_York",
+  
+  "capabilities": {
+    "experiment_types": [
+      "CELL_VIABILITY_IC50",
+      "ENZYME_INHIBITION_IC50"
+    ],
+    "menu_tags": [
+      "viability_celltiter_glo",
+      "viability_mtt",
+      "viability_384_well",
+      "enzyme_colorimetric",
+      "enzyme_fluorometric"
+    ],
+    "instruments": [
+      {
+        "name": "Plate Reader",
+        "manufacturer": "Molecular Devices",
+        "model": "SpectraMax M5",
+        "last_calibration": "2025-12-15"
+      },
+      {
+        "name": "Plate Reader",
+        "manufacturer": "PerkinElmer",
+        "model": "EnVision",
+        "last_calibration": "2025-11-20"
+      }
+    ],
+    "cell_lines_available": [
+      "HeLa",
+      "A549",
+      "MCF-7",
+      "HEK293",
+      "HCT116",
+      "PC-3"
+    ],
+    "custom_protocol_capable": true
+  },
+  
+  "compliance": {
+    "max_bsl": "BSL2",
+    "human_samples_approved": false,
+    "animal_samples_approved": false,
+    "hazardous_chemicals_approved": true,
+    "export_control_compliant": true,
+    "certifications": ["GLP-compliant documentation"],
+    "institutional_approval_type": "commercial_contract"
+  },
+  
+  "commercial_terms": {
+    "standard_terms_on_file": true,
+    "accepts_purchase_orders": true,
+    "payment_methods": ["credit_card", "ach", "purchase_order"],
+    "currency": "USD",
+    "pricing_bands": {
+      "CELL_VIABILITY_IC50": {
+        "min_usd": 300,
+        "max_usd": 800,
+        "typical_usd": 450
+      },
+      "ENZYME_INHIBITION_IC50": {
+        "min_usd": 250,
+        "max_usd": 600,
+        "typical_usd": 380
+      }
+    },
+    "turnaround_days": {
+      "CELL_VIABILITY_IC50": {
+        "standard": 10,
+        "expedited": 5
+      },
+      "ENZYME_INHIBITION_IC50": {
+        "standard": 7,
+        "expedited": 4
+      }
+    },
+    "minimum_order_usd": 200
+  },
+  
+  "quality_metrics": {
+    "on_time_rate": 0.96,
+    "rerun_rate": 0.02,
+    "dispute_rate": 0.01,
+    "average_rating": 4.8,
+    "total_jobs_completed": 847,
+    "data_package_score": 0.92
+  },
+  
+  "logistics": {
+    "shipping_address": {
+      "line1": "123 Lab Drive",
+      "line2": "Suite 400",
+      "city": "Boston",
+      "state": "MA",
+      "postal_code": "02115",
+      "country": "US"
+    },
+    "shipping_modes_accepted": ["AMBIENT", "COLD_PACK", "DRY_ICE"],
+    "weekend_receiving": true,
+    "hazmat_receiving": true,
+    "fedex_account": true
+  },
+  
+  "deliverables_support": {
+    "global": {
+      "raw_formats": ["CSV", "XLSX", "IMAGE_FILES", "PDF_REPORT"],
+      "processed_outputs": ["QC_SUMMARY"],
+      "max_package_level": "L2_INTERPRETATION"
+    },
+    "by_experiment_type": {
+      "CELL_VIABILITY_IC50": {
+        "processed_outputs": [
+          "NORMALIZED_VIABILITY_PERCENT",
+          "IC50_CURVE_FIT",
+          "QC_SUMMARY",
+          "ANALYSIS_NOTEBOOK"
+        ]
+      },
+      "ENZYME_INHIBITION_IC50": {
+        "processed_outputs": [
+          "IC50_CURVE_FIT",
+          "KINETIC_PARAMETERS",
+          "QC_SUMMARY"
+        ]
+      }
+    }
+  },
+  
+  "availability": {
+    "current_capacity": "high",
+    "vacation_dates": [],
+    "max_concurrent_jobs": 20
+  },
+  
+  "contact": {
+    "primary_email": "orders@cellassaypro.example.com",
+    "preferred_contact_method": "email",
+    "response_time_hours": 4
+  },
+  
+  "verification": {
+    "identity_verified": true,
+    "institution_verified": true,
+    "capabilities_verified": true,
+    "last_verification_date": "2025-10-01"
+  }
+}

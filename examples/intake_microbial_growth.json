@@ -1,0 +1,96 @@
+{
+  "experiment_type": "MICROBIAL_GROWTH_MATRIX",
+  "title": "E. coli growth optimization across pH and temperature",
+  "hypothesis": {
+    "statement": "E. coli K-12 achieves maximum growth rate (μmax ≥ 0.8 h⁻¹) at pH 7.0 and 37°C, with >50% reduction at pH 5.5 or 42°C",
+    "null_hypothesis": "E. coli growth rate does not vary significantly across the tested pH and temperature ranges",
+    "why_interesting": "Establishing baseline growth parameters for a fermentation optimization project. Need to define the optimal operating window."
+  },
+  "compliance": {
+    "bsl": "BSL1",
+    "human_derived_material": false,
+    "animal_derived_material": false,
+    "hazardous_chemicals": false
+  },
+  "turnaround_budget": {
+    "desired_turnaround_days": 14,
+    "budget_max_usd": 280,
+    "budget_flexibility": "flexible_10",
+    "priority": "standard"
+  },
+  "deliverables": {
+    "raw_data_formats": ["CSV", "XLSX", "IMAGE_FILES"],
+    "required_processed_outputs": ["GROWTH_RATE_LAG_MAXOD", "QC_SUMMARY"],
+    "minimum_package_level": "L2_INTERPRETATION",
+    "photo_documentation": "key_steps",
+    "lab_notebook_scan": true
+  },
+  "privacy": "open",
+  "materials_provided": [],
+  "replicates": {
+    "technical": 3,
+    "biological": 2
+  },
+  "acceptance_criteria": {
+    "success_conditions": [
+      {
+        "metric": "Maximum growth rate at pH 7.0, 37°C",
+        "operator": "gte",
+        "threshold": 0.8,
+        "unit": "h⁻¹"
+      }
+    ],
+    "failure_conditions": [
+      {
+        "condition": "No growth in any condition",
+        "interpretation": "Inoculum viability issue"
+      },
+      {
+        "condition": "Replicate CV >20% for growth rate",
+        "interpretation": "High biological variability - may need more replicates"
+      }
+    ],
+    "statistical_requirements": {
+      "significance_level": 0.05,
+      "test": "anova"
+    }
+  },
+  "microbial_growth": {
+    "organism": "Escherichia coli",
+    "strain": "K-12 MG1655",
+    "organism_source": "ATCC",
+    "base_medium": "LB broth",
+    "condition_matrix": [
+      {
+        "variable": "pH",
+        "values": [
+          { "value": 5.5, "unit": "" },
+          { "value": 6.5, "unit": "" },
+          { "value": 7.0, "unit": "" },
+          { "value": 7.5, "unit": "" }
+        ]
+      },
+      {
+        "variable": "Temperature",
+        "values": [
+          { "value": 30, "unit": "°C" },
+          { "value": 37, "unit": "°C" },
+          { "value": 42, "unit": "°C" }
+        ]
+      }
+    ],
+    "incubation_temperature_c": 37,
+    "incubation_hours": 24,
+    "aeration": "shaking",
+    "read_schedule": [
+      { "time_hours": 0, "measurement": "OD600" },
+      { "time_hours": 2, "measurement": "OD600" },
+      { "time_hours": 4, "measurement": "OD600" },
+      { "time_hours": 6, "measurement": "OD600" },
+      { "time_hours": 8, "measurement": "OD600" },
+      { "time_hours": 12, "measurement": "OD600" },
+      { "time_hours": 24, "measurement": "OD600" }
+    ],
+    "endpoint_only": false
+  }
+}

@@ -1,0 +1,156 @@
+{
+  "lab_id": "op_marcus_micro_042",
+  "name": "Marcus Chen (UC Berkeley Microbiology)",
+  "type": "individual_operator",
+  "status": "active",
+  "region": "US",
+  "timezone": "America/Los_Angeles",
+  
+  "capabilities": {
+    "experiment_types": [
+      "MIC_MBC_ASSAY",
+      "ZONE_OF_INHIBITION",
+      "MICROBIAL_GROWTH_MATRIX"
+    ],
+    "menu_tags": [
+      "mic_broth_microdilution",
+      "disk_diffusion",
+      "microbial_aerobic",
+      "microbial_bsl2_pathogens"
+    ],
+    "instruments": [
+      {
+        "name": "Plate Reader",
+        "manufacturer": "BioTek",
+        "model": "Synergy HTX",
+        "last_calibration": "2025-09-15"
+      },
+      {
+        "name": "Incubator",
+        "manufacturer": "Thermo Fisher",
+        "model": "HeraCell 150i"
+      }
+    ],
+    "organisms_available": [
+      "Escherichia coli ATCC 25922",
+      "Staphylococcus aureus ATCC 25923",
+      "Pseudomonas aeruginosa ATCC 27853",
+      "Bacillus subtilis 168"
+    ],
+    "custom_protocol_capable": false
+  },
+  
+  "compliance": {
+    "max_bsl": "BSL2",
+    "human_samples_approved": false,
+    "animal_samples_approved": false,
+    "hazardous_chemicals_approved": true,
+    "export_control_compliant": true,
+    "institutional_approval_type": "pi_letter"
+  },
+  
+  "commercial_terms": {
+    "standard_terms_on_file": true,
+    "accepts_purchase_orders": false,
+    "payment_methods": ["credit_card"],
+    "currency": "USD",
+    "pricing_bands": {
+      "MIC_MBC_ASSAY": {
+        "min_usd": 150,
+        "max_usd": 300,
+        "typical_usd": 200
+      },
+      "ZONE_OF_INHIBITION": {
+        "min_usd": 80,
+        "max_usd": 180,
+        "typical_usd": 120
+      },
+      "MICROBIAL_GROWTH_MATRIX": {
+        "min_usd": 120,
+        "max_usd": 280,
+        "typical_usd": 180
+      }
+    },
+    "turnaround_days": {
+      "MIC_MBC_ASSAY": {
+        "standard": 7,
+        "expedited": 4
+      },
+      "ZONE_OF_INHIBITION": {
+        "standard": 5,
+        "expedited": 3
+      },
+      "MICROBIAL_GROWTH_MATRIX": {
+        "standard": 10,
+        "expedited": 6
+      }
+    },
+    "minimum_order_usd": 0
+  },
+  
+  "quality_metrics": {
+    "on_time_rate": 0.98,
+    "rerun_rate": 0.04,
+    "dispute_rate": 0.02,
+    "average_rating": 4.7,
+    "total_jobs_completed": 47,
+    "data_package_score": 0.85
+  },
+  
+  "logistics": {
+    "shipping_address": {
+      "line1": "UC Berkeley",
+      "line2": "Dept. of Microbiology, Koshland Hall",
+      "city": "Berkeley",
+      "state": "CA",
+      "postal_code": "94720",
+      "country": "US"
+    },
+    "shipping_modes_accepted": ["AMBIENT", "COLD_PACK"],
+    "weekend_receiving": false,
+    "hazmat_receiving": false,
+    "fedex_account": false
+  },
+  
+  "deliverables_support": {
+    "global": {
+      "raw_formats": ["CSV", "XLSX", "IMAGE_FILES"],
+      "processed_outputs": ["QC_SUMMARY"],
+      "max_package_level": "L1_BASIC_QC"
+    },
+    "by_experiment_type": {
+      "MIC_MBC_ASSAY": {
+        "processed_outputs": ["MIC_VALUE", "MBC_VALUE", "QC_SUMMARY"],
+        "max_package_level": "L2_INTERPRETATION"
+      },
+      "ZONE_OF_INHIBITION": {
+        "processed_outputs": ["ZONE_DIAMETER_MM", "QC_SUMMARY"]
+      },
+      "MICROBIAL_GROWTH_MATRIX": {
+        "processed_outputs": ["GROWTH_RATE_LAG_MAXOD", "QC_SUMMARY"]
+      }
+    }
+  },
+  
+  "availability": {
+    "current_capacity": "medium",
+    "vacation_dates": [
+      { "start": "2026-03-15", "end": "2026-03-22" }
+    ],
+    "max_concurrent_jobs": 3
+  },
+  
+  "contact": {
+    "primary_email": "mchen@berkeley.example.edu",
+    "preferred_contact_method": "platform",
+    "response_time_hours": 12
+  },
+  
+  "verification": {
+    "identity_verified": true,
+    "institution_verified": true,
+    "capabilities_verified": true,
+    "last_verification_date": "2025-08-15",
+    "verification_notes": "PI approval letter on file. Lab competency verified via test run."
+  }
+}

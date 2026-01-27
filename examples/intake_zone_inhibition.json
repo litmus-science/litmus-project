@@ -1,0 +1,81 @@
+{
+  "experiment_type": "ZONE_OF_INHIBITION",
+  "title": "Antibacterial disk diffusion assay for honey extract",
+  "hypothesis": {
+    "statement": "Manuka honey extract produces a zone of inhibition ≥15mm against S. aureus at 50% w/v concentration",
+    "null_hypothesis": "Manuka honey extract produces no measurable zone of inhibition against S. aureus",
+    "why_interesting": "Testing whether the reported antibacterial properties of Manuka honey can be demonstrated in a standardized disk diffusion assay."
+  },
+  "compliance": {
+    "bsl": "BSL2",
+    "human_derived_material": false,
+    "animal_derived_material": false,
+    "hazardous_chemicals": false
+  },
+  "turnaround_budget": {
+    "desired_turnaround_days": 7,
+    "budget_max_usd": 180,
+    "budget_flexibility": "strict",
+    "priority": "standard"
+  },
+  "deliverables": {
+    "raw_data_formats": ["CSV", "IMAGE_FILES"],
+    "required_processed_outputs": ["ZONE_DIAMETER_MM", "QC_SUMMARY"],
+    "minimum_package_level": "L1_BASIC_QC",
+    "photo_documentation": "all_steps",
+    "lab_notebook_scan": true
+  },
+  "privacy": "open",
+  "materials_provided": [
+    {
+      "name": "Manuka honey (UMF 15+)",
+      "specification": "Commercial grade, sealed container",
+      "quantity": { "value": 50, "unit": "g" },
+      "storage_requirements": "Room temperature",
+      "hazardous": false
+    }
+  ],
+  "replicates": {
+    "technical": 3,
+    "biological": 2
+  },
+  "acceptance_criteria": {
+    "success_conditions": [
+      {
+        "metric": "Zone diameter at 50% concentration",
+        "operator": "gte",
+        "threshold": 15,
+        "unit": "mm"
+      }
+    ],
+    "failure_conditions": [
+      {
+        "condition": "No zone of inhibition at any concentration",
+        "interpretation": "Extract has no antibacterial activity under these conditions"
+      },
+      {
+        "condition": "Ampicillin positive control zone <25mm",
+        "interpretation": "Assay technical failure - inoculum or incubation issue"
+      },
+      {
+        "condition": "Zone edges are fuzzy or irregular",
+        "interpretation": "May indicate bacteriostatic rather than bactericidal activity"
+      }
+    ]
+  },
+  "zone_of_inhibition": {
+    "organism": "Staphylococcus aureus",
+    "strain": "ATCC 25923",
+    "medium": "Mueller-Hinton agar",
+    "compound_name": "Manuka honey extract",
+    "disk_loading": [
+      { "amount": 10, "unit": "μL" },
+      { "amount": 20, "unit": "μL" },
+      { "amount": 30, "unit": "μL" }
+    ],
+    "disk_diameter_mm": 6,
+    "positive_control": "Ampicillin 10μg disk",
+    "incubation_hours": 18,
+    "incubation_temperature_c": 37
+  }
+}

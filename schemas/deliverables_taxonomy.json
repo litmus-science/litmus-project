@@ -1,0 +1,243 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://litmus.science/schemas/deliverables_taxonomy/v1",
+  "title": "Litmus Deliverables Taxonomy",
+  "description": "Canonical enums and tags for experiment outputs, data formats, and package levels",
+  
+  "raw_formats": {
+    "description": "File formats for raw data output",
+    "values": [
+      {
+        "id": "CSV",
+        "name": "Comma-Separated Values",
+        "mime_type": "text/csv",
+        "typical_use": "Tabular data, measurements, plate reader outputs"
+      },
+      {
+        "id": "XLSX",
+        "name": "Excel Spreadsheet",
+        "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "typical_use": "Formatted spreadsheets with multiple sheets, formulas"
+      },
+      {
+        "id": "AB1",
+        "name": "ABI Chromatogram",
+        "mime_type": "application/octet-stream",
+        "typical_use": "Sanger sequencing trace files"
+      },
+      {
+        "id": "SEQ",
+        "name": "Sequence File",
+        "mime_type": "text/plain",
+        "typical_use": "Plain text sequence data"
+      },
+      {
+        "id": "FASTQ",
+        "name": "FASTQ Sequence",
+        "mime_type": "text/plain",
+        "typical_use": "Sequencing reads with quality scores"
+      },
+      {
+        "id": "INSTRUMENT_EXPORT",
+        "name": "Native Instrument Export",
+        "mime_type": "application/octet-stream",
+        "typical_use": "Proprietary format from specific instruments"
+      },
+      {
+        "id": "IMAGE_FILES",
+        "name": "Image Files",
+        "mime_type": "image/*",
+        "typical_use": "Photos of plates, gels, microscopy"
+      },
+      {
+        "id": "PDF_REPORT",
+        "name": "PDF Report",
+        "mime_type": "application/pdf",
+        "typical_use": "Formatted reports, certificates of analysis"
+      },
+      {
+        "id": "JSON",
+        "name": "JSON Data",
+        "mime_type": "application/json",
+        "typical_use": "Structured data, API-friendly format"
+      }
+    ]
+  },
+
+  "processed_outputs": {
+    "description": "Analysis outputs that labs may or may not provide",
+    "values": [
+      {
+        "id": "ALIGNMENT_VS_REFERENCE",
+        "name": "Sequence Alignment vs Reference",
+        "experiment_types": ["SANGER_PLASMID_VERIFICATION"],
+        "description": "Aligned sequences showing matches, mismatches, insertions, deletions"
+      },
+      {
+        "id": "VARIANT_CALLS",
+        "name": "Variant/Mutation Calls",
+        "experiment_types": ["SANGER_PLASMID_VERIFICATION"],
+        "description": "List of detected variants with positions and confidence"
+      },
+      {
+        "id": "CT_TABLE",
+        "name": "Ct Values Table",
+        "experiment_types": ["QPCR_EXPRESSION"],
+        "description": "Cycle threshold values for all samples and targets"
+      },
+      {
+        "id": "DDCT_FOLD_CHANGE",
+        "name": "ΔΔCt Fold Change",
+        "experiment_types": ["QPCR_EXPRESSION"],
+        "description": "Relative expression calculated via delta-delta Ct method"
+      },
+      {
+        "id": "AMPLIFICATION_PLOTS",
+        "name": "Amplification Curves",
+        "experiment_types": ["QPCR_EXPRESSION"],
+        "description": "Real-time fluorescence curves for each well"
+      },
+      {
+        "id": "MELT_CURVES",
+        "name": "Melt Curve Analysis",
+        "experiment_types": ["QPCR_EXPRESSION"],
+        "description": "Melt curve data for product specificity verification (SYBR)"
+      },
+      {
+        "id": "NORMALIZED_VIABILITY_PERCENT",
+        "name": "Normalized Viability (%)",
+        "experiment_types": ["CELL_VIABILITY_IC50"],
+        "description": "Viability values normalized to positive and negative controls"
+      },
+      {
+        "id": "IC50_CURVE_FIT",
+        "name": "IC50 Curve Fit",
+        "experiment_types": ["CELL_VIABILITY_IC50", "ENZYME_INHIBITION_IC50"],
+        "description": "Dose-response curve fit with IC50, Hill slope, R², confidence intervals"
+      },
+      {
+        "id": "KINETIC_PARAMETERS",
+        "name": "Enzyme Kinetic Parameters",
+        "experiment_types": ["ENZYME_INHIBITION_IC50"],
+        "description": "Km, Vmax, Ki, inhibition mode analysis"
+      },
+      {
+        "id": "GROWTH_RATE_LAG_MAXOD",
+        "name": "Growth Parameters",
+        "experiment_types": ["MICROBIAL_GROWTH_MATRIX"],
+        "description": "Growth rate (μ), lag time, max OD, doubling time"
+      },
+      {
+        "id": "MIC_VALUE",
+        "name": "MIC Determination",
+        "experiment_types": ["MIC_MBC_ASSAY"],
+        "description": "Minimum inhibitory concentration with interpretation"
+      },
+      {
+        "id": "MBC_VALUE",
+        "name": "MBC Determination",
+        "experiment_types": ["MIC_MBC_ASSAY"],
+        "description": "Minimum bactericidal concentration"
+      },
+      {
+        "id": "ZONE_DIAMETER_MM",
+        "name": "Zone Diameter Measurements",
+        "experiment_types": ["ZONE_OF_INHIBITION"],
+        "description": "Inhibition zone diameters in millimeters"
+      },
+      {
+        "id": "QC_SUMMARY",
+        "name": "QC Summary Report",
+        "experiment_types": ["*"],
+        "description": "Quality control summary: controls passed/failed, CV%, flags"
+      },
+      {
+        "id": "ANALYSIS_NOTEBOOK",
+        "name": "Analysis Notebook",
+        "experiment_types": ["*"],
+        "description": "Jupyter/R notebook with full analysis code and outputs"
+      }
+    ]
+  },
+
+  "package_levels": {
+    "description": "Tiers of output completeness/interpretation",
+    "values": [
+      {
+        "id": "L0_RAW_ONLY",
+        "name": "Raw Data Only",
+        "description": "Raw instrument outputs and images only. No processing or QC.",
+        "typical_contents": [
+          "Instrument export files",
+          "Raw images",
+          "Plate reader raw data"
+        ],
+        "typical_price_multiplier": 1.0
+      },
+      {
+        "id": "L1_BASIC_QC",
+        "name": "Basic QC",
+        "description": "Raw data plus basic quality control and data organization.",
+        "typical_contents": [
+          "Everything in L0",
+          "QC summary (controls passed/failed)",
+          "Organized/labeled data files",
+          "Basic statistics (mean, SD)"
+        ],
+        "typical_price_multiplier": 1.2
+      },
+      {
+        "id": "L2_INTERPRETATION",
+        "name": "Full Interpretation",
+        "description": "Complete analysis with curve fits, statistical tests, and interpretation.",
+        "typical_contents": [
+          "Everything in L1",
+          "Curve fitting (IC50, EC50, MIC)",
+          "Statistical analysis",
+          "Results summary/interpretation",
+          "Publication-ready figures (optional)"
+        ],
+        "typical_price_multiplier": 1.5
+      }
+    ]
+  },
+
+  "experiment_type_defaults": {
+    "description": "Default deliverables expectations by experiment type",
+    "SANGER_PLASMID_VERIFICATION": {
+      "typical_raw": ["AB1", "SEQ"],
+      "typical_processed": ["ALIGNMENT_VS_REFERENCE", "VARIANT_CALLS", "QC_SUMMARY"],
+      "typical_package_level": "L1_BASIC_QC"
+    },
+    "QPCR_EXPRESSION": {
+      "typical_raw": ["CSV", "XLSX", "INSTRUMENT_EXPORT"],
+      "typical_processed": ["CT_TABLE", "DDCT_FOLD_CHANGE", "AMPLIFICATION_PLOTS", "QC_SUMMARY"],
+      "typical_package_level": "L2_INTERPRETATION"
+    },
+    "CELL_VIABILITY_IC50": {
+      "typical_raw": ["CSV", "XLSX", "IMAGE_FILES"],
+      "typical_processed": ["NORMALIZED_VIABILITY_PERCENT", "IC50_CURVE_FIT", "QC_SUMMARY"],
+      "typical_package_level": "L2_INTERPRETATION"
+    },
+    "ENZYME_INHIBITION_IC50": {
+      "typical_raw": ["CSV", "XLSX"],
+      "typical_processed": ["IC50_CURVE_FIT", "KINETIC_PARAMETERS", "QC_SUMMARY"],
+      "typical_package_level": "L2_INTERPRETATION"
+    },
+    "MICROBIAL_GROWTH_MATRIX": {
+      "typical_raw": ["CSV", "XLSX", "IMAGE_FILES"],
+      "typical_processed": ["GROWTH_RATE_LAG_MAXOD", "QC_SUMMARY"],
+      "typical_package_level": "L1_BASIC_QC"
+    },
+    "MIC_MBC_ASSAY": {
+      "typical_raw": ["CSV", "IMAGE_FILES"],
+      "typical_processed": ["MIC_VALUE", "MBC_VALUE", "QC_SUMMARY"],
+      "typical_package_level": "L2_INTERPRETATION"
+    },
+    "ZONE_OF_INHIBITION": {
+      "typical_raw": ["CSV", "IMAGE_FILES"],
+      "typical_processed": ["ZONE_DIAMETER_MM", "QC_SUMMARY"],
+      "typical_package_level": "L1_BASIC_QC"
+    }
+  }
+}

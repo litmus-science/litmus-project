@@ -1,0 +1,147 @@
+{
+  "experiment_type": "CUSTOM",
+  "title": "Bacteriophage plaque assay for lytic activity",
+  "hypothesis": {
+    "statement": "Phage isolate LP-2024 forms clear plaques on E. coli B strain with titer ≥10⁸ PFU/mL",
+    "null_hypothesis": "Phage isolate LP-2024 does not produce detectable plaques on E. coli B",
+    "why_interesting": "Characterizing a novel phage isolate from environmental water sample for potential phage therapy application."
+  },
+  "compliance": {
+    "bsl": "BSL1",
+    "human_derived_material": false,
+    "animal_derived_material": false,
+    "hazardous_chemicals": false
+  },
+  "turnaround_budget": {
+    "desired_turnaround_days": 10,
+    "budget_max_usd": 220,
+    "budget_flexibility": "flexible_10",
+    "priority": "standard"
+  },
+  "deliverables": {
+    "raw_data_formats": ["CSV", "IMAGE_FILES"],
+    "required_processed_outputs": ["QC_SUMMARY"],
+    "minimum_package_level": "L1_BASIC_QC",
+    "photo_documentation": "all_steps",
+    "lab_notebook_scan": true
+  },
+  "privacy": "delayed_6mo",
+  "materials_provided": [
+    {
+      "name": "Phage lysate LP-2024",
+      "specification": "Crude lysate in SM buffer, ~10⁶ PFU/mL estimated",
+      "quantity": { "value": 1, "unit": "mL" },
+      "storage_requirements": "4°C",
+      "hazardous": false
+    }
+  ],
+  "replicates": {
+    "technical": 3,
+    "biological": 2
+  },
+  "acceptance_criteria": {
+    "success_conditions": [
+      {
+        "metric": "Phage titer",
+        "operator": "gte",
+        "threshold": 100000000,
+        "unit": "PFU/mL"
+      },
+      {
+        "metric": "Plaque clarity",
+        "operator": "eq",
+        "threshold": 1,
+        "unit": "clear (vs turbid)"
+      }
+    ],
+    "failure_conditions": [
+      {
+        "condition": "No plaques observed at any dilution",
+        "interpretation": "Phage may not infect this host strain"
+      },
+      {
+        "condition": "Only turbid plaques",
+        "interpretation": "Phage may be temperate (lysogenic) rather than lytic"
+      },
+      {
+        "condition": "Bacterial lawn does not form on control plates",
+        "interpretation": "Host strain viability issue"
+      }
+    ]
+  },
+  "custom_protocol": {
+    "protocol_title": "Double-Layer Agar Plaque Assay",
+    "protocol_version": "1.0",
+    "protocol_attached": false,
+    "brief_description": "Standard double-layer agar method for bacteriophage enumeration. Phage is mixed with host bacteria in soft agar overlay, poured onto LB agar base, and incubated overnight. Plaques are counted to determine titer.",
+    "steps": [
+      {
+        "step_number": 1,
+        "action": "Prepare overnight culture of E. coli B in LB broth at 37°C with shaking",
+        "duration": { "value": 16, "unit": "hours" },
+        "temperature": { "value": 37, "unit": "C" },
+        "expected_outcome": "Dense overnight culture, OD600 ~1.5-2.0"
+      },
+      {
+        "step_number": 2,
+        "action": "Prepare 10-fold serial dilutions of phage lysate in SM buffer (10⁻¹ to 10⁻⁸)",
+        "critical_parameters": ["Use fresh pipette tips for each dilution", "Vortex briefly between dilutions"],
+        "expected_outcome": "8 dilution tubes plus undiluted control"
+      },
+      {
+        "step_number": 3,
+        "action": "For each dilution: Mix 100μL phage dilution + 100μL overnight culture in 3mL molten soft agar (0.7% agar, 48°C). Pour immediately onto pre-warmed LB agar plate.",
+        "duration": { "value": 30, "unit": "minutes" },
+        "temperature": { "value": 48, "unit": "C" },
+        "critical_parameters": ["Soft agar must be 45-48°C - too hot kills bacteria, too cold solidifies prematurely", "Pour quickly and tilt to spread evenly"],
+        "expected_outcome": "Even overlay without bubbles"
+      },
+      {
+        "step_number": 4,
+        "action": "Allow overlays to solidify at room temperature for 15 minutes",
+        "duration": { "value": 15, "unit": "minutes" },
+        "expected_outcome": "Firm overlay that doesn't slide when tilted"
+      },
+      {
+        "step_number": 5,
+        "action": "Incubate plates inverted at 37°C overnight",
+        "duration": { "value": 18, "unit": "hours" },
+        "temperature": { "value": 37, "unit": "C" },
+        "expected_outcome": "Confluent bacterial lawn with visible plaques"
+      },
+      {
+        "step_number": 6,
+        "action": "Count plaques on plates with 30-300 plaques. Calculate titer as: PFU/mL = (plaques counted) × (dilution factor) × 10",
+        "critical_parameters": ["Count only plates with 30-300 plaques for accuracy", "Note plaque morphology: clear, turbid, or halo"],
+        "expected_outcome": "Titer calculation from at least 2 countable dilutions"
+      },
+      {
+        "step_number": 7,
+        "action": "Photograph representative plates showing plaque morphology with ruler for scale",
+        "expected_outcome": "Clear images of plaques for documentation"
+      }
+    ],
+    "equipment_required": [
+      {
+        "name": "Incubator",
+        "specifications": "37°C ± 1°C",
+        "required": true
+      },
+      {
+        "name": "Water bath",
+        "specifications": "48°C for soft agar",
+        "required": true
+      },
+      {
+        "name": "Vortex mixer",
+        "specifications": "Standard laboratory vortex",
+        "required": true
+      }
+    ],
+    "safety_notes": [
+      "E. coli B is BSL-1 but standard microbiological practices should be followed",
+      "Dispose of all plates and cultures in biohazard waste",
+      "Autoclave before disposal"
+    ]
+  }
+}

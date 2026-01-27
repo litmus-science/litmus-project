@@ -1,0 +1,86 @@
+{
+  "experiment_type": "CELL_VIABILITY_IC50",
+  "title": "Compound X cytotoxicity in HeLa cells",
+  "hypothesis": {
+    "statement": "Compound X reduces HeLa cell viability with IC50 ≤ 10μM after 48h exposure",
+    "null_hypothesis": "Compound X has no significant effect on HeLa viability (IC50 > 100μM)",
+    "why_interesting": "Compound X is a novel scaffold identified from computational screening. Preliminary docking suggests affinity for a validated cancer target."
+  },
+  "compliance": {
+    "bsl": "BSL1",
+    "human_derived_material": false,
+    "animal_derived_material": false,
+    "hazardous_chemicals": true,
+    "sds_attached": true
+  },
+  "turnaround_budget": {
+    "desired_turnaround_days": 14,
+    "budget_max_usd": 500,
+    "budget_flexibility": "flexible_10",
+    "priority": "standard"
+  },
+  "deliverables": {
+    "raw_data_formats": ["CSV", "XLSX"],
+    "required_processed_outputs": ["NORMALIZED_VIABILITY_PERCENT", "IC50_CURVE_FIT", "QC_SUMMARY"],
+    "minimum_package_level": "L2_INTERPRETATION",
+    "photo_documentation": "key_steps",
+    "lab_notebook_scan": true
+  },
+  "privacy": "open",
+  "materials_provided": [
+    {
+      "name": "Compound X",
+      "specification": "≥95% purity, 10mM stock in DMSO",
+      "quantity": { "value": 100, "unit": "μL" },
+      "storage_requirements": "-20°C, protected from light",
+      "hazardous": true
+    }
+  ],
+  "replicates": {
+    "technical": 3,
+    "biological": 2
+  },
+  "acceptance_criteria": {
+    "success_conditions": [
+      {
+        "metric": "IC50",
+        "operator": "lte",
+        "threshold": 10,
+        "unit": "μM"
+      }
+    ],
+    "failure_conditions": [
+      {
+        "condition": "No inhibition observed at 100μM",
+        "interpretation": "Compound is inactive in this cell line"
+      },
+      {
+        "condition": "Cell viability in DMSO control <80%",
+        "interpretation": "Assay failed - vehicle toxicity"
+      }
+    ],
+    "statistical_requirements": {
+      "significance_level": 0.05
+    }
+  },
+  "cell_viability": {
+    "cell_line": "HeLa",
+    "cell_source": "ATCC",
+    "assay_type": "CELLTITER_GLO",
+    "compound_name": "Compound X",
+    "compound_stock_concentration": { "value": 10, "unit": "mM" },
+    "solvent": "DMSO",
+    "dose_range": {
+      "min": 0.01,
+      "max": 100,
+      "unit": "μM",
+      "points": 10,
+      "dilution_series": "half-log"
+    },
+    "exposure_time_hours": 48,
+    "seeding_density_cells_per_well": 5000,
+    "plate_format": "96-well",
+    "positive_control": "Staurosporine 1μM",
+    "include_z_factor": true
+  }
+}

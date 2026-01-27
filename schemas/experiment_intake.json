@@ -1,0 +1,674 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://litmus.science/schemas/experiment_intake/v1",
+  "title": "Litmus Experiment Intake",
+  "description": "Unified intake schema for one-off experiment requests with experiment-type conditional requirements",
+  "type": "object",
+  "required": ["experiment_type", "title", "hypothesis", "compliance", "deliverables", "turnaround_budget"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "intake_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Client-generated idempotency key"
+        },
+        "submitter_type": {
+          "type": "string",
+          "enum": ["human", "ai_agent", "automated_pipeline"],
+          "default": "human"
+        },
+        "agent_identifier": {
+          "type": "string",
+          "description": "For AI agents: model name/version"
+        },
+        "parent_intake_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "For follow-up experiments"
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 50 },
+          "maxItems": 10
+        },
+        "language": {
+          "type": "string",
+          "default": "en"
+        }
+      }
+    },
+    "experiment_type": {
+      "type": "string",
+      "enum": [
+        "SANGER_PLASMID_VERIFICATION",
+        "QPCR_EXPRESSION",
+        "CELL_VIABILITY_IC50",
+        "ENZYME_INHIBITION_IC50",
+        "MICROBIAL_GROWTH_MATRIX",
+        "MIC_MBC_ASSAY",
+        "ZONE_OF_INHIBITION",
+        "CUSTOM"
+      ],
+      "description": "Primary experiment type - determines required fields"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 200,
+      "description": "Short descriptive title"
+    },
+    "hypothesis": {
+      "type": "object",
+      "required": ["statement"],
+      "properties": {
+        "statement": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 1000,
+          "description": "Testable hypothesis"
+        },
+        "null_hypothesis": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "why_interesting": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Background/rationale"
+        },
+        "prior_work": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["doi", "pmid", "url", "litmus_experiment"] },
+              "identifier": { "type": "string" },
+              "relevance": { "type": "string", "maxLength": 500 }
+            }
+          }
+        }
+      }
+    },
+    "compliance": {
+      "type": "object",
+      "required": ["bsl"],
+      "properties": {
+        "bsl": {
+          "type": "string",
+          "enum": ["BSL1", "BSL2"],
+          "default": "BSL1"
+        },
+        "human_derived_material": {
+          "type": "boolean",
+          "default": false
+        },
+        "animal_derived_material": {
+          "type": "boolean",
+          "default": false
+        },
+        "hazardous_chemicals": {
+          "type": "boolean",
+          "default": false
+        },
+        "sds_attached": {
+          "type": "boolean",
+          "default": false,
+          "description": "True if SDS/safety data sheet will be provided"
+        },
+        "export_control_or_sanctions_risk": {
+          "type": "boolean",
+          "default": false
+        },
+        "hazard_notes": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      }
+    },
+    "turnaround_budget": {
+      "type": "object",
+      "required": ["budget_max_usd"],
+      "properties": {
+        "desired_turnaround_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 180
+        },
+        "hard_deadline": {
+          "type": "string",
+          "format": "date"
+        },
+        "budget_max_usd": {
+          "type": "number",
+          "minimum": 50,
+          "maximum": 100000
+        },
+        "budget_flexibility": {
+          "type": "string",
+          "enum": ["strict", "flexible_10", "flexible_25", "flexible_50"],
+          "default": "strict"
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["standard", "expedited", "urgent"],
+          "default": "standard"
+        }
+      }
+    },
+    "deliverables": {
+      "type": "object",
+      "required": ["minimum_package_level"],
+      "properties": {
+        "raw_data_formats": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["CSV", "XLSX", "AB1", "SEQ", "FASTQ", "INSTRUMENT_EXPORT", "IMAGE_FILES", "PDF_REPORT", "JSON"]
+          },
+          "default": ["CSV"]
+        },
+        "required_processed_outputs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "ALIGNMENT_VS_REFERENCE",
+              "VARIANT_CALLS",
+              "CT_TABLE",
+              "DDCT_FOLD_CHANGE",
+              "AMPLIFICATION_PLOTS",
+              "MELT_CURVES",
+              "NORMALIZED_VIABILITY_PERCENT",
+              "IC50_CURVE_FIT",
+              "KINETIC_PARAMETERS",
+              "GROWTH_RATE_LAG_MAXOD",
+              "MIC_VALUE",
+              "MBC_VALUE",
+              "ZONE_DIAMETER_MM",
+              "QC_SUMMARY",
+              "ANALYSIS_NOTEBOOK"
+            ]
+          }
+        },
+        "minimum_package_level": {
+          "type": "string",
+          "enum": ["L0_RAW_ONLY", "L1_BASIC_QC", "L2_INTERPRETATION"],
+          "default": "L1_BASIC_QC"
+        },
+        "photo_documentation": {
+          "type": "string",
+          "enum": ["none", "key_steps", "all_steps"],
+          "default": "key_steps"
+        },
+        "lab_notebook_scan": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "privacy": {
+      "type": "string",
+      "enum": ["open", "delayed_6mo", "delayed_12mo", "private"],
+      "default": "open"
+    },
+    "materials_provided": {
+      "type": "array",
+      "description": "Materials the requester will ship to the operator",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "maxLength": 200 },
+          "specification": { "type": "string", "maxLength": 500 },
+          "quantity": {
+            "type": "object",
+            "properties": {
+              "value": { "type": "number" },
+              "unit": { "type": "string" }
+            }
+          },
+          "cas_number": { "type": "string", "pattern": "^[0-9]+-[0-9]+-[0-9]+$" },
+          "storage_requirements": { "type": "string" },
+          "hazardous": { "type": "boolean", "default": false }
+        }
+      }
+    },
+    "replicates": {
+      "type": "object",
+      "properties": {
+        "technical": { "type": "integer", "minimum": 1, "default": 3 },
+        "biological": { "type": "integer", "minimum": 1, "default": 1 }
+      }
+    },
+    "acceptance_criteria": {
+      "type": "object",
+      "properties": {
+        "success_conditions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["metric", "operator", "threshold"],
+            "properties": {
+              "metric": { "type": "string", "maxLength": 200 },
+              "operator": { "type": "string", "enum": ["gt", "gte", "lt", "lte", "eq", "neq", "between", "not_between"] },
+              "threshold": {
+                "oneOf": [
+                  { "type": "number" },
+                  { "type": "object", "properties": { "min": { "type": "number" }, "max": { "type": "number" } }, "required": ["min", "max"] }
+                ]
+              },
+              "unit": { "type": "string" }
+            }
+          }
+        },
+        "failure_conditions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["condition"],
+            "properties": {
+              "condition": { "type": "string", "maxLength": 500 },
+              "interpretation": { "type": "string", "maxLength": 500 }
+            }
+          }
+        },
+        "statistical_requirements": {
+          "type": "object",
+          "properties": {
+            "significance_level": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.05 },
+            "test": { "type": "string", "enum": ["t_test", "anova", "mann_whitney", "chi_square", "fisher_exact", "other"] }
+          }
+        }
+      }
+    },
+    "communication_preferences": {
+      "type": "object",
+      "properties": {
+        "webhook_url": { "type": "string", "format": "uri" },
+        "notification_events": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["claimed", "started", "milestone", "completed", "issue", "results_ready"] },
+          "default": ["claimed", "completed", "issue"]
+        },
+        "preferred_contact": { "type": "string", "enum": ["email", "webhook", "platform_only"], "default": "email" }
+      }
+    },
+
+    "sanger": {
+      "type": "object",
+      "description": "Required when experiment_type = SANGER_PLASMID_VERIFICATION",
+      "properties": {
+        "template_type": {
+          "type": "string",
+          "enum": ["plasmid", "pcr_product", "genomic"]
+        },
+        "template_concentration_ng_ul": { "type": "number", "minimum": 0 },
+        "primers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "sequence"],
+            "properties": {
+              "name": { "type": "string" },
+              "sequence": { "type": "string", "pattern": "^[ATCGRYSWKMBDHVN]+$" },
+              "provided_by": { "type": "string", "enum": ["requester", "operator"] }
+            }
+          }
+        },
+        "expected_insert_size_bp": { "type": "integer", "minimum": 0 },
+        "reference_sequence_attached": { "type": "boolean", "default": false },
+        "regions_of_interest": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "start_bp": { "type": "integer" },
+              "end_bp": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
+
+    "qpcr": {
+      "type": "object",
+      "description": "Required when experiment_type = QPCR_EXPRESSION",
+      "properties": {
+        "chemistry": {
+          "type": "string",
+          "enum": ["SYBR_GREEN", "TAQMAN", "OTHER"]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["gene_symbol"],
+            "properties": {
+              "gene_symbol": { "type": "string" },
+              "assay_id": { "type": "string" },
+              "primer_sequences": {
+                "type": "object",
+                "properties": {
+                  "forward": { "type": "string" },
+                  "reverse": { "type": "string" },
+                  "probe": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "housekeeping_genes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "sample_type": {
+          "type": "string",
+          "enum": ["cDNA", "RNA", "gDNA", "cells"]
+        },
+        "number_of_samples": { "type": "integer", "minimum": 1 },
+        "conditions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "cell_viability": {
+      "type": "object",
+      "description": "Required when experiment_type = CELL_VIABILITY_IC50",
+      "properties": {
+        "cell_line": {
+          "type": "string",
+          "description": "e.g., HeLa, A549, MCF-7"
+        },
+        "cell_source": {
+          "type": "string",
+          "description": "e.g., ATCC, in-house"
+        },
+        "assay_type": {
+          "type": "string",
+          "enum": ["CELLTITER_GLO", "MTT", "MTS", "RESAZURIN", "LIVE_DEAD", "OTHER"]
+        },
+        "compound_name": { "type": "string" },
+        "compound_stock_concentration": {
+          "type": "object",
+          "properties": {
+            "value": { "type": "number" },
+            "unit": { "type": "string" }
+          }
+        },
+        "solvent": {
+          "type": "string",
+          "default": "DMSO"
+        },
+        "dose_range": {
+          "type": "object",
+          "properties": {
+            "min": { "type": "number" },
+            "max": { "type": "number" },
+            "unit": { "type": "string" },
+            "points": { "type": "integer", "minimum": 3 },
+            "dilution_series": { "type": "string", "enum": ["2-fold", "3-fold", "half-log", "custom"] }
+          }
+        },
+        "exposure_time_hours": { "type": "number", "minimum": 0 },
+        "seeding_density_cells_per_well": { "type": "integer" },
+        "plate_format": {
+          "type": "string",
+          "enum": ["96-well", "384-well"],
+          "default": "96-well"
+        },
+        "positive_control": { "type": "string" },
+        "include_z_factor": { "type": "boolean", "default": true }
+      }
+    },
+
+    "enzyme_inhibition": {
+      "type": "object",
+      "description": "Required when experiment_type = ENZYME_INHIBITION_IC50",
+      "properties": {
+        "target_enzyme": { "type": "string" },
+        "enzyme_source": { "type": "string" },
+        "enzyme_concentration": {
+          "type": "object",
+          "properties": {
+            "value": { "type": "number" },
+            "unit": { "type": "string" }
+          }
+        },
+        "assay_type": {
+          "type": "string",
+          "enum": ["COLORIMETRIC", "FLUOROMETRIC", "LUMINESCENT", "RADIOMETRIC", "COUPLED", "OTHER"]
+        },
+        "substrate": { "type": "string" },
+        "substrate_concentration": {
+          "type": "object",
+          "properties": {
+            "value": { "type": "number" },
+            "unit": { "type": "string" }
+          }
+        },
+        "inhibitor_name": { "type": "string" },
+        "inhibitor_concentrations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": { "type": "number" },
+              "unit": { "type": "string" }
+            }
+          }
+        },
+        "incubation_time_minutes": { "type": "integer" },
+        "incubation_temperature_c": { "type": "number" },
+        "buffer": { "type": "string" },
+        "detection_wavelength_nm": { "type": "integer" },
+        "positive_control_inhibitor": { "type": "string" }
+      }
+    },
+
+    "microbial_growth": {
+      "type": "object",
+      "description": "Required when experiment_type = MICROBIAL_GROWTH_MATRIX",
+      "properties": {
+        "organism": { "type": "string" },
+        "strain": { "type": "string" },
+        "organism_source": {
+          "type": "string",
+          "enum": ["ATCC", "DSMZ", "in_house", "other"]
+        },
+        "base_medium": { "type": "string" },
+        "condition_matrix": {
+          "type": "array",
+          "description": "Variables to test in combination",
+          "items": {
+            "type": "object",
+            "required": ["variable", "values"],
+            "properties": {
+              "variable": { "type": "string" },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "value": { "type": ["string", "number"] },
+                    "unit": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "incubation_temperature_c": { "type": "number" },
+        "incubation_hours": { "type": "integer" },
+        "aeration": {
+          "type": "string",
+          "enum": ["static", "shaking", "anaerobic"]
+        },
+        "read_schedule": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "time_hours": { "type": "number" },
+              "measurement": { "type": "string", "enum": ["OD600", "CFU", "both"] }
+            }
+          }
+        },
+        "endpoint_only": { "type": "boolean", "default": false }
+      }
+    },
+
+    "mic_mbc": {
+      "type": "object",
+      "description": "Required when experiment_type = MIC_MBC_ASSAY",
+      "properties": {
+        "organism": { "type": "string" },
+        "strain": { "type": "string" },
+        "organism_source": { "type": "string" },
+        "medium": { "type": "string", "default": "Mueller-Hinton broth" },
+        "compound_name": { "type": "string" },
+        "concentration_range": {
+          "type": "object",
+          "properties": {
+            "min": { "type": "number" },
+            "max": { "type": "number" },
+            "unit": { "type": "string" },
+            "dilution_series": { "type": "string", "enum": ["2-fold", "custom"] }
+          }
+        },
+        "inoculum_cfu_ml": { "type": "number" },
+        "incubation_hours": { "type": "integer", "default": 18 },
+        "incubation_temperature_c": { "type": "number", "default": 37 },
+        "positive_control_antibiotic": { "type": "string" },
+        "determine_mbc": { "type": "boolean", "default": false },
+        "method": {
+          "type": "string",
+          "enum": ["broth_microdilution", "broth_macrodilution", "agar_dilution"]
+        }
+      }
+    },
+
+    "zone_of_inhibition": {
+      "type": "object",
+      "description": "Required when experiment_type = ZONE_OF_INHIBITION",
+      "properties": {
+        "organism": { "type": "string" },
+        "strain": { "type": "string" },
+        "medium": { "type": "string", "default": "Mueller-Hinton agar" },
+        "compound_name": { "type": "string" },
+        "disk_loading": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "amount": { "type": "number" },
+              "unit": { "type": "string" }
+            }
+          }
+        },
+        "disk_diameter_mm": { "type": "number", "default": 6 },
+        "positive_control": { "type": "string" },
+        "incubation_hours": { "type": "integer", "default": 18 },
+        "incubation_temperature_c": { "type": "number", "default": 37 }
+      }
+    },
+
+    "custom_protocol": {
+      "type": "object",
+      "description": "Required when experiment_type = CUSTOM",
+      "properties": {
+        "protocol_title": { "type": "string", "maxLength": 200 },
+        "protocol_version": { "type": "string" },
+        "protocol_attached": { "type": "boolean", "default": false },
+        "brief_description": { "type": "string", "maxLength": 5000 },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["step_number", "action"],
+            "properties": {
+              "step_number": { "type": "integer", "minimum": 1 },
+              "action": { "type": "string", "maxLength": 2000 },
+              "duration": {
+                "type": "object",
+                "properties": {
+                  "value": { "type": "number" },
+                  "unit": { "type": "string", "enum": ["seconds", "minutes", "hours", "days"] }
+                }
+              },
+              "temperature": {
+                "type": "object",
+                "properties": {
+                  "value": { "type": "number" },
+                  "unit": { "type": "string", "enum": ["C", "F", "K"] }
+                }
+              },
+              "critical_parameters": { "type": "array", "items": { "type": "string" } },
+              "expected_outcome": { "type": "string" }
+            }
+          }
+        },
+        "equipment_required": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "specifications": { "type": "string" },
+              "required": { "type": "boolean", "default": true }
+            }
+          }
+        },
+        "safety_notes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "experiment_type": { "const": "SANGER_PLASMID_VERIFICATION" } } },
+      "then": { "required": ["sanger"] }
+    },
+    {
+      "if": { "properties": { "experiment_type": { "const": "QPCR_EXPRESSION" } } },
+      "then": { "required": ["qpcr"] }
+    },
+    {
+      "if": { "properties": { "experiment_type": { "const": "CELL_VIABILITY_IC50" } } },
+      "then": { "required": ["cell_viability"] }
+    },
+    {
+      "if": { "properties": { "experiment_type": { "const": "ENZYME_INHIBITION_IC50" } } },
+      "then": { "required": ["enzyme_inhibition"] }
+    },
+    {
+      "if": { "properties": { "experiment_type": { "const": "MICROBIAL_GROWTH_MATRIX" } } },
+      "then": { "required": ["microbial_growth"] }
+    },
+    {
+      "if": { "properties": { "experiment_type": { "const": "MIC_MBC_ASSAY" } } },
+      "then": { "required": ["mic_mbc"] }
+    },
+    {
+      "if": { "properties": { "experiment_type": { "const": "ZONE_OF_INHIBITION" } } },
+      "then": { "required": ["zone_of_inhibition"] }
+    },
+    {
+      "if": { "properties": { "experiment_type": { "const": "CUSTOM" } } },
+      "then": { "required": ["custom_protocol"] }
+    }
+  ]
+}
