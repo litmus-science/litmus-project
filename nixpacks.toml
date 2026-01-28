@@ -1,0 +1,17 @@
+# Nixpacks configuration for Railway deployment
+# This project needs both Python (backend) and Node.js (TypeScript router)
+
+[phases.setup]
+nixPkgs = ["python311", "nodejs_18"]
+
+[phases.install]
+cmds = [
+    "npm ci",
+    "python -m pip install -r requirements.txt"
+]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "python -m uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}"

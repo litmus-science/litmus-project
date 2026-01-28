@@ -158,7 +158,7 @@ export enum FilterReason {
 // Utilities
 
 function getNested(obj: Record<string, unknown>, path: string): unknown {
-  return path.split('.').reduce((val, key) => 
+  return path.split('.').reduce<unknown>((val, key) =>
     val && typeof val === 'object' ? (val as Record<string, unknown>)[key] : undefined, obj);
 }
 
