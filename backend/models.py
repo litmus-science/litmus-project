@@ -263,6 +263,10 @@ DATABASE_URL = os.environ.get(
     "sqlite+aiosqlite:///./litmus.db"
 )
 
+# Railway provides postgresql:// but SQLAlchemy async needs postgresql+asyncpg://
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+
 # Only enable SQL echo in development (never in production - security risk)
 _debug_mode = os.environ.get("LITMUS_DEBUG", "").lower() in ("1", "true", "yes")
 engine = create_async_engine(DATABASE_URL, echo=_debug_mode)
