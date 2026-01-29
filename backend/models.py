@@ -255,6 +255,33 @@ class FileUpload(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class CloudLabSubmission(Base):
+    """Cloud lab submission records for ECL and Strateos."""
+    __tablename__ = "cloud_lab_submissions"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    experiment_id = Column(String, ForeignKey("experiments.id"), nullable=False)
+
+    # Provider info
+    provider = Column(String, nullable=False)  # "ecl" or "strateos"
+    provider_submission_id = Column(String)  # External ID from cloud lab
+
+    # Protocol
+    translated_protocol = Column(JSON)  # The SLL/Autoprotocol output
+    protocol_format = Column(String)  # "sll" or "autoprotocol"
+
+    # Status tracking
+    status = Column(String, default="pending")  # pending, submitted, queued, running, completed, failed, cancelled
+    submitted_at = Column(DateTime)
+    completed_at = Column(DateTime)
+
+    # Provider response data
+    provider_response = Column(JSON)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # Database setup - Use environment variable for production database
 import os
 

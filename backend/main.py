@@ -1306,6 +1306,324 @@ async def test_webhook(
 
 
 # =============================================================================
+# Cloud Lab Endpoints
+# =============================================================================
+
+from backend.cloud_labs import (
+    get_translator, get_provider, list_providers as get_providers_list,
+    PROVIDERS, TranslationError
+)
+from backend.cloud_labs.registry import (
+    translate_intake as do_translate_intake,
+    validate_intake_for_provider,
+    get_supported_experiment_types,
+    get_provider_info,
+)
+from backend.cloud_labs.models import (
+    TranslateRequest, TranslateResponse, TranslationResultResponse,
+    ValidateForProviderRequest, ProviderInfoResponse, ProvidersListResponse,
+    SupportedTypesResponse, ValidationIssueResponse,
+)
+from backend.models import CloudLabSubmission
+
+
+@app.get("/cloud-labs/providers", response_model=ProvidersListResponse, tags=["Cloud Labs"])
+async def list_cloud_lab_providers():
+    """List available cloud lab providers and their capabilities."""
+    providers = get_providers_list()
+    return ProvidersListResponse(
+        providers=[
+            ProviderInfoResponse(**p)
+            for p in providers
+        ]
+    )
+
+
+@app.get("/cloud-labs/providers/{provider_id}", response_model=ProviderInfoResponse, tags=["Cloud Labs"])
+async def get_cloud_lab_provider(provider_id: str):
+    """Get detailed information about a specific cloud lab provider."""
+    try:
+        info = get_provider_info(provider_id)
+        return ProviderInfoResponse(**info)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/cloud-labs/supported-types", response_model=SupportedTypesResponse, tags=["Cloud Labs"])
+async def get_supported_types(
+    provider: Optional[str] = Query(None, description="Filter by provider (ecl/strateos)")
+):
+    """Get experiment types supported by cloud lab providers."""
+    return SupportedTypesResponse(
+        supported_types=get_supported_experiment_types(provider)
+    )
+
+
+@app.post("/cloud-labs/translate", response_model=TranslateResponse, tags=["Cloud Labs"])
+async def translate_to_cloud_lab(
+    request: TranslateRequest,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """
+    Translate a Litmus experiment intake to cloud lab protocol format.
+
+    Converts the standardized Litmus intake JSON to either:
+    - SLL (Symbolic Lab Language) for ECL
+    - Autoprotocol (JSON) for Strateos
+
+    If no provider is specified, translates for all compatible providers.
+    """
+    intake = request.intake
+    provider = request.provider
+
+    try:
+        results = do_translate_intake(intake, provider)
+
+        translations = {}
+        for prov_name, result in results.items():
+            translations[prov_name] = TranslationResultResponse(
+                provider=result.provider,
+                format=result.format,
+                protocol=result.protocol,
+                protocol_readable=result.protocol_readable,
+                success=result.success,
+                errors=[ValidationIssueResponse(
+                    path=e.path, code=e.code, message=e.message,
+                    severity=e.severity, suggestion=e.suggestion
+                ) for e in result.errors],
+                warnings=[ValidationIssueResponse(
+                    path=w.path, code=w.code, message=w.message,
+                    severity=w.severity, suggestion=w.suggestion
+                ) for w in result.warnings],
+                metadata=result.metadata
+            )
+
+        return TranslateResponse(
+            translations=translations,
+            experiment_type=intake.get("experiment_type", "unknown"),
+            title=intake.get("title")
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except TranslationError as e:
+        raise HTTPException(status_code=422, detail={
+            "code": "translation_error",
+            "message": str(e),
+            "field_path": e.field_path,
+            "suggestion": e.suggestion
+        })
+
+
+@app.post("/cloud-labs/validate", tags=["Cloud Labs"])
+async def validate_for_cloud_lab(
+    request: ValidateForProviderRequest,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """
+    Validate an intake specification for a specific cloud lab provider.
+
+    Returns validation issues (errors and warnings) specific to the
+    target cloud lab's requirements and capabilities.
+    """
+    try:
+        issues = validate_intake_for_provider(request.intake, request.provider)
+        errors = [i for i in issues if i.severity == "error"]
+        warnings = [i for i in issues if i.severity == "warning"]
+
+        return {
+            "valid": len(errors) == 0,
+            "provider": request.provider,
+            "errors": [ValidationIssueResponse(
+                path=e.path, code=e.code, message=e.message,
+                severity=e.severity, suggestion=e.suggestion
+            ) for e in errors],
+            "warnings": [ValidationIssueResponse(
+                path=w.path, code=w.code, message=w.message,
+                severity=w.severity, suggestion=w.suggestion
+            ) for w in warnings]
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/cloud-labs/experiments/{experiment_id}/translate", tags=["Cloud Labs"])
+async def translate_experiment(
+    experiment_id: str,
+    provider: str = Query(..., description="Target provider (ecl/strateos)"),
+    save: bool = Query(False, description="Save translation to database"),
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Translate an existing experiment to cloud lab format.
+
+    Fetches the experiment specification and translates it to the
+    specified cloud lab's protocol format.
+    """
+    # Get the experiment
+    result = await db.execute(
+        select(ExperimentModel).where(ExperimentModel.id == experiment_id)
+    )
+    experiment = result.scalar_one_or_none()
+
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+
+    if experiment.requester_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Translate the specification
+    try:
+        translator = get_translator(provider)
+        translation_result = translator.translate(experiment.specification)
+
+        if save and translation_result.success:
+            # Save to database
+            submission = CloudLabSubmission(
+                experiment_id=experiment.id,
+                provider=provider,
+                translated_protocol=translation_result.protocol,
+                protocol_format=translation_result.format,
+                status="pending"
+            )
+            db.add(submission)
+            await db.commit()
+            await db.refresh(submission)
+
+            return {
+                "submission_id": submission.id,
+                "translation": TranslationResultResponse(
+                    provider=translation_result.provider,
+                    format=translation_result.format,
+                    protocol=translation_result.protocol,
+                    protocol_readable=translation_result.protocol_readable,
+                    success=translation_result.success,
+                    errors=[],
+                    warnings=[ValidationIssueResponse(
+                        path=w.path, code=w.code, message=w.message,
+                        severity=w.severity, suggestion=w.suggestion
+                    ) for w in translation_result.warnings],
+                    metadata=translation_result.metadata
+                ),
+                "saved": True
+            }
+
+        return {
+            "translation": TranslationResultResponse(
+                provider=translation_result.provider,
+                format=translation_result.format,
+                protocol=translation_result.protocol,
+                protocol_readable=translation_result.protocol_readable,
+                success=translation_result.success,
+                errors=[ValidationIssueResponse(
+                    path=e.path, code=e.code, message=e.message,
+                    severity=e.severity, suggestion=e.suggestion
+                ) for e in translation_result.errors],
+                warnings=[ValidationIssueResponse(
+                    path=w.path, code=w.code, message=w.message,
+                    severity=w.severity, suggestion=w.suggestion
+                ) for w in translation_result.warnings],
+                metadata=translation_result.metadata
+            ),
+            "saved": False
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/cloud-labs/submissions", tags=["Cloud Labs"])
+async def list_cloud_lab_submissions(
+    experiment_id: Optional[str] = None,
+    provider: Optional[str] = None,
+    status: Optional[str] = None,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """List cloud lab submissions for the current user's experiments."""
+    # Get user's experiment IDs
+    exp_query = select(ExperimentModel.id).where(
+        ExperimentModel.requester_id == current_user.id
+    )
+
+    query = select(CloudLabSubmission).where(
+        CloudLabSubmission.experiment_id.in_(exp_query)
+    )
+
+    if experiment_id:
+        query = query.where(CloudLabSubmission.experiment_id == experiment_id)
+    if provider:
+        query = query.where(CloudLabSubmission.provider == provider)
+    if status:
+        query = query.where(CloudLabSubmission.status == status)
+
+    query = query.order_by(CloudLabSubmission.created_at.desc())
+
+    result = await db.execute(query)
+    submissions = result.scalars().all()
+
+    return {
+        "submissions": [
+            {
+                "id": s.id,
+                "experiment_id": s.experiment_id,
+                "provider": s.provider,
+                "protocol_format": s.protocol_format,
+                "status": s.status,
+                "provider_submission_id": s.provider_submission_id,
+                "submitted_at": s.submitted_at,
+                "completed_at": s.completed_at,
+                "created_at": s.created_at,
+            }
+            for s in submissions
+        ]
+    }
+
+
+@app.get("/cloud-labs/submissions/{submission_id}", tags=["Cloud Labs"])
+async def get_cloud_lab_submission(
+    submission_id: str,
+    include_protocol: bool = Query(False, description="Include full protocol in response"),
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get details of a specific cloud lab submission."""
+    result = await db.execute(
+        select(CloudLabSubmission).where(CloudLabSubmission.id == submission_id)
+    )
+    submission = result.scalar_one_or_none()
+
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    # Check access via experiment
+    exp_result = await db.execute(
+        select(ExperimentModel).where(ExperimentModel.id == submission.experiment_id)
+    )
+    experiment = exp_result.scalar_one_or_none()
+
+    if not experiment or (experiment.requester_id != current_user.id and current_user.role != "admin"):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    response = {
+        "id": submission.id,
+        "experiment_id": submission.experiment_id,
+        "provider": submission.provider,
+        "protocol_format": submission.protocol_format,
+        "status": submission.status,
+        "provider_submission_id": submission.provider_submission_id,
+        "submitted_at": submission.submitted_at,
+        "completed_at": submission.completed_at,
+        "created_at": submission.created_at,
+        "updated_at": submission.updated_at,
+    }
+
+    if include_protocol:
+        response["translated_protocol"] = submission.translated_protocol
+
+    return response
+
+
+# =============================================================================
 # Health Check
 # =============================================================================
 
