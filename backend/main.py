@@ -71,25 +71,28 @@ All endpoints require a Bearer token in the Authorization header or X-API-Key he
 _cors_origins = os.environ.get("LITMUS_CORS_ORIGINS", "").split(",")
 _cors_origins = [o.strip() for o in _cors_origins if o.strip()]
 
-# Default to restrictive origins in production, permissive only if explicitly set
+# Check if we're in development mode (auth disabled or debug mode)
+_dev_mode = (
+    os.environ.get("LITMUS_AUTH_DISABLED", "").lower() in ("1", "true", "yes") or
+    os.environ.get("LITMUS_DEBUG", "").lower() in ("1", "true", "yes")
+)
+
+# Default to restrictive origins in production, permissive in dev
 if not _cors_origins:
-    _cors_origins = [
-        "https://app.litmus.science",
-        "https://admin.litmus.science",
-        "https://docs.litmus.science",
-    ]
-    # Allow localhost in development
-    if os.environ.get("LITMUS_DEBUG", "").lower() in ("1", "true", "yes"):
-        _cors_origins.extend([
-            "http://localhost:3000",
-            "http://localhost:8080",
-            "http://127.0.0.1:3000",
-        ])
+    if _dev_mode:
+        # Allow all origins in development
+        _cors_origins = ["*"]
+    else:
+        _cors_origins = [
+            "https://app.litmus.science",
+            "https://admin.litmus.science",
+            "https://docs.litmus.science",
+        ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_credentials=True,
+    allow_credentials=not _dev_mode,  # Can't use credentials with "*" origins
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID"],
 )
@@ -1631,6 +1634,15 @@ async def get_cloud_lab_submission(
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "version": "1.0.0"}
+
+
+@app.get("/config", tags=["System"])
+async def get_config():
+    """Get public configuration for frontend."""
+    return {
+        "auth_disabled": os.environ.get("LITMUS_AUTH_DISABLED", "").lower() in ("1", "true", "yes"),
+        "debug_mode": os.environ.get("LITMUS_DEBUG", "").lower() in ("1", "true", "yes"),
+    }
 
 
 # =============================================================================

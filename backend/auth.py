@@ -157,6 +157,17 @@ async def get_current_user(
     """
     Get current authenticated user from Bearer token or API key.
     """
+    # Development mode: bypass auth entirely
+    if os.environ.get("LITMUS_AUTH_DISABLED", "").lower() in ("1", "true", "yes"):
+        return AuthUser(
+            id="dev-user",
+            email="dev@litmus.science",
+            name="Development User",
+            organization="Litmus Dev",
+            role="admin",  # Full access in dev mode
+            rate_limit_tier="pro"
+        )
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
