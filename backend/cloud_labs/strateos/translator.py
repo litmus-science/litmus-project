@@ -371,12 +371,12 @@ class StrateosTranslator(CloudLabTranslator):
         replicates = intake.get("replicates", {})
         tech_reps = replicates.get("technical", 3)
 
-        enzyme = ei.get("enzyme_name", "Unknown")
-        substrate = ei.get("substrate_name", "Unknown")
-        detection_method = ei.get("detection_method", "absorbance")
+        enzyme = ei.get("target_enzyme", "Unknown")
+        substrate = ei.get("substrate", "Unknown")
+        detection_method = "absorbance"
         wavelength = ei.get("detection_wavelength_nm", 405)
-        read_interval = ei.get("read_interval_seconds", 30)
-        total_time = ei.get("total_assay_time_minutes", 30)
+        read_interval = 30
+        total_time = ei.get("incubation_time_minutes", 30)
         num_reads = (total_time * 60) // read_interval
 
         # Create refs
@@ -421,11 +421,15 @@ class StrateosTranslator(CloudLabTranslator):
         tech_reps = replicates.get("technical", 3)
 
         organism = mg.get("organism", "E. coli")
-        media = mg.get("media", "LB")
-        temperature = mg.get("temperature_celsius", 37)
-        total_hours = mg.get("duration_hours", 24)
-        read_interval = mg.get("read_interval_minutes", 30)
-        shaking = mg.get("shaking", True)
+        media = mg.get("base_medium", "LB")
+        temperature = mg.get("incubation_temperature_c", 37)
+        total_hours = mg.get("incubation_hours", 24)
+        read_schedule = mg.get("read_schedule", [])
+        if len(read_schedule) >= 2 and read_schedule[0].get("time_hours") is not None and read_schedule[1].get("time_hours") is not None:
+            read_interval = (read_schedule[1]["time_hours"] - read_schedule[0]["time_hours"]) * 60
+        else:
+            read_interval = 30
+        shaking = mg.get("aeration", "shaking") == "shaking"
 
         num_reads = int((total_hours * 60) / read_interval)
 
@@ -470,10 +474,10 @@ class StrateosTranslator(CloudLabTranslator):
         tech_reps = replicates.get("technical", 3)
 
         organism = mic.get("organism", "E. coli")
-        antibiotic = mic.get("antibiotic_name", "Unknown")
+        antibiotic = mic.get("compound_name", "Unknown")
         incubation_hours = mic.get("incubation_hours", 18)
-        dilution_series = mic.get("dilution_series", "2-fold")
-        num_dilutions = mic.get("number_of_dilutions", 8)
+        dilution_series = mic.get("concentration_range", {}).get("dilution_series", "2-fold")
+        num_dilutions = 8
 
         # Create refs
         refs = {
@@ -525,9 +529,10 @@ class StrateosTranslator(CloudLabTranslator):
         tech_reps = replicates.get("technical", 3)
 
         organism = zoi.get("organism", "E. coli")
-        compounds = zoi.get("compounds", [])
+        compound_name = zoi.get("compound_name", "Unknown")
+        compounds = [{"name": compound_name}]
         incubation_hours = zoi.get("incubation_hours", 18)
-        agar_type = zoi.get("agar_type", "Mueller-Hinton")
+        agar_type = zoi.get("medium", "Mueller-Hinton")
 
         # Zone of inhibition typically uses agar plates, not microplates
         # This is a simplified protocol - real ZOI would need custom handling
@@ -569,7 +574,7 @@ class StrateosTranslator(CloudLabTranslator):
     def _translate_custom(self, intake: dict) -> dict:
         """Translate custom protocol."""
         custom = intake.get("custom_protocol", {})
-        protocol_steps = custom.get("protocol_steps", [])
+        protocol_steps = custom.get("steps", [])
 
         # For custom protocols, create a basic structure
         # The actual steps would need manual review

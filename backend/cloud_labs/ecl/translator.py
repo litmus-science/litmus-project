@@ -249,10 +249,11 @@ class ECLTranslator(CloudLabTranslator):
                     "forward": primer_seqs.get("forward", ""),
                     "reverse": primer_seqs.get("reverse", ""),
                 })
-            if target.get("probe_sequence"):
+            probe = primer_seqs.get("probe")
+            if probe:
                 probes.append({
                     "name": f"{target.get('gene_symbol', 'target')}_probe",
-                    "sequence": target.get("probe_sequence"),
+                    "sequence": probe,
                 })
 
         # Reference genes
@@ -309,16 +310,22 @@ class ECLTranslator(CloudLabTranslator):
         ei_data = intake.get("enzyme_inhibition", {})
         replicates = intake.get("replicates", {})
 
-        enzyme = ei_data.get("enzyme_name", "enzyme")
-        substrate = ei_data.get("substrate_name", "substrate")
-        inhibitors = ei_data.get("inhibitors", [{"name": "test_inhibitor"}])
-        assay_time = ei_data.get("total_assay_time_minutes", 30)
-        temperature = ei_data.get("temperature_celsius", 37)
+        enzyme = ei_data.get("target_enzyme", "enzyme")
+        substrate = ei_data.get("substrate", "substrate")
+        inhibitor_name = ei_data.get("inhibitor_name", "test_inhibitor")
+        inhibitors = [{"name": inhibitor_name}]
+        assay_time = ei_data.get("incubation_time_minutes", 30)
+        temperature = ei_data.get("incubation_temperature_c", 37)
         wavelength = ei_data.get("detection_wavelength_nm", 405)
 
-        dose_range = ei_data.get("dose_range", {})
-        min_conc = dose_range.get("min", 0.01)
-        max_conc = dose_range.get("max", 100)
+        inhibitor_concs = ei_data.get("inhibitor_concentrations", [])
+        values = [c.get("value") for c in inhibitor_concs if c.get("value") is not None]
+        if values:
+            min_conc = min(values)
+            max_conc = max(values)
+        else:
+            min_conc = 0.01
+            max_conc = 100
 
         return sll.experiment_enzyme_activity(
             enzyme=enzyme,
@@ -336,23 +343,23 @@ class ECLTranslator(CloudLabTranslator):
         mg_data = intake.get("microbial_growth", {})
         replicates = intake.get("replicates", {})
 
-        organisms = mg_data.get("organisms", ["E. coli"])
-        if isinstance(organisms, str):
-            organisms = [organisms]
-        organism = mg_data.get("organism", organisms[0] if organisms else "E. coli")
+        organism = mg_data.get("organism", "E. coli")
+        media = mg_data.get("base_medium", "LB")
+        temperature = mg_data.get("incubation_temperature_c", 37)
+        duration = mg_data.get("incubation_hours", 24)
+        read_schedule = mg_data.get("read_schedule", [])
+        if len(read_schedule) >= 2 and read_schedule[0].get("time_hours") is not None and read_schedule[1].get("time_hours") is not None:
+            read_interval = (read_schedule[1]["time_hours"] - read_schedule[0]["time_hours"]) * 60
+        else:
+            read_interval = 30
+        shaking = mg_data.get("aeration", "shaking") == "shaking"
 
-        media = mg_data.get("media", "LB")
-        temperature = mg_data.get("temperature_celsius", 37)
-        duration = mg_data.get("duration_hours", 24)
-        read_interval = mg_data.get("read_interval_minutes", 30)
-        shaking = mg_data.get("shaking", True)
-
-        # Build sample list from conditions
-        conditions = mg_data.get("conditions", [])
+        # Build sample list from condition_matrix
+        conditions = mg_data.get("condition_matrix", [])
         samples = []
         if conditions:
             for i, cond in enumerate(conditions):
-                samples.append(f"culture_{cond.get('name', i+1)}")
+                samples.append(f"culture_{cond.get('variable', i+1)}")
         else:
             num_samples = replicates.get("biological", 3)
             samples = [f"culture_{i+1}" for i in range(num_samples)]
@@ -371,14 +378,17 @@ class ECLTranslator(CloudLabTranslator):
         mic_data = intake.get("mic_mbc", {})
 
         organism = mic_data.get("organism", "E. coli")
-        antibiotics = mic_data.get("antibiotics", [])
-        if not antibiotics:
-            antibiotic_name = mic_data.get("antibiotic_name", "test_antibiotic")
-            antibiotics = [{"name": antibiotic_name}]
+        compound_name = mic_data.get("compound_name", "test_compound")
+        antibiotics = [{"name": compound_name}]
 
-        method = mic_data.get("method", "BrothMicrodilution")
+        method_map = {
+            "broth_microdilution": "BrothMicrodilution",
+            "broth_macrodilution": "BrothMicrodilution",
+            "agar_dilution": "AgarDilution",
+        }
+        method = method_map.get(mic_data.get("method", "broth_microdilution"), "BrothMicrodilution")
         dilution_factor = 2  # Standard 2-fold dilution
-        num_dilutions = mic_data.get("number_of_dilutions", 8)
+        num_dilutions = 8
         incubation_hours = mic_data.get("incubation_hours", 18)
 
         return sll.experiment_antibiotic_susceptibility(
@@ -395,11 +405,10 @@ class ECLTranslator(CloudLabTranslator):
         zoi_data = intake.get("zone_of_inhibition", {})
 
         organism = zoi_data.get("organism", "E. coli")
-        compounds = zoi_data.get("compounds", [])
-        if not compounds:
-            compounds = [{"name": "test_compound"}]
+        compound_name = zoi_data.get("compound_name", "test_compound")
+        compounds = [{"name": compound_name}]
 
-        agar_type = zoi_data.get("agar_type", "MuellerHinton")
+        agar_type = zoi_data.get("medium", "Mueller-Hinton")
         incubation_hours = zoi_data.get("incubation_hours", 18)
 
         return sll.experiment_disk_diffusion(
@@ -413,9 +422,16 @@ class ECLTranslator(CloudLabTranslator):
         """Translate custom protocol to SLL."""
         custom_data = intake.get("custom_protocol", {})
 
-        name = intake.get("title", "Custom Protocol")
-        description = custom_data.get("description", "No description provided")
-        steps = custom_data.get("protocol_steps", [])
+        name = custom_data.get("protocol_title", intake.get("title", "Custom Protocol"))
+        description = custom_data.get("brief_description", "No description provided")
+        steps_raw = custom_data.get("steps", [])
+        steps = [
+            {
+                "name": f"Step {s.get('step_number', i+1)}",
+                "description": s.get("action", "No description"),
+            }
+            for i, s in enumerate(steps_raw)
+        ]
 
         return sll.custom_protocol(
             name=name,
