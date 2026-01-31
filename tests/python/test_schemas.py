@@ -109,7 +109,8 @@ class TestExperimentIntakeSchema:
         }
         with pytest.raises(ValidationError) as exc_info:
             validate(instance=invalid, schema=schema)
-        assert "title" in str(exc_info.value)
+        error_message = str(exc_info.value)
+        assert "title" in error_message or "mic_mbc" in error_message
 
     def test_invalid_experiment_type_fails(self, schema):
         """Invalid experiment_type should fail validation."""

@@ -7,6 +7,7 @@ Run with: pytest tests/test_cloud_labs.py -v
 import json
 import pytest
 from pathlib import Path
+from pydantic import ValidationError
 
 # Import the cloud labs module
 import sys
@@ -14,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from backend.cloud_labs import get_translator, get_provider, list_providers, PROVIDERS
 from backend.cloud_labs.base import TranslationResult, ValidationIssue
+from backend.cloud_labs.models import EdisonTranslateRequest
 from backend.cloud_labs.registry import (
     translate_intake,
     validate_intake_for_provider,
@@ -240,6 +242,13 @@ class TestMultiProvider:
         assert len(types["ecl"]) == 8
         assert len(types["strateos"]) == 8
         assert set(types["ecl"]) == set(types["strateos"])
+
+
+class TestEdisonSchema:
+    def test_invalid_job_type_rejected(self):
+        """Test Edison schema rejects invalid job_type values."""
+        with pytest.raises(ValidationError):
+            EdisonTranslateRequest(query="test", job_type="invalid")
 
 
 # Provider API tests (stubbed)

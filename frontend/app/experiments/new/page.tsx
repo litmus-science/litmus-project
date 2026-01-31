@@ -141,7 +141,7 @@ export default function NewExperimentPage() {
         },
       };
 
-      const translateResult = await translateToCloudLab({ intake });
+      const translateResult = await translateToCloudLab({ intake, use_llm: true });
       setTranslation(translateResult);
       setShowPreview(true);
     } catch (err) {
