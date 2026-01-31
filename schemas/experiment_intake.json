@@ -639,35 +639,59 @@
   },
   "allOf": [
     {
-      "if": { "properties": { "experiment_type": { "const": "SANGER_PLASMID_VERIFICATION" } } },
+      "if": {
+        "properties": { "experiment_type": { "const": "SANGER_PLASMID_VERIFICATION" } },
+        "required": ["experiment_type"]
+      },
       "then": { "required": ["sanger"] }
     },
     {
-      "if": { "properties": { "experiment_type": { "const": "QPCR_EXPRESSION" } } },
+      "if": {
+        "properties": { "experiment_type": { "const": "QPCR_EXPRESSION" } },
+        "required": ["experiment_type"]
+      },
       "then": { "required": ["qpcr"] }
     },
     {
-      "if": { "properties": { "experiment_type": { "const": "CELL_VIABILITY_IC50" } } },
+      "if": {
+        "properties": { "experiment_type": { "const": "CELL_VIABILITY_IC50" } },
+        "required": ["experiment_type"]
+      },
       "then": { "required": ["cell_viability"] }
     },
     {
-      "if": { "properties": { "experiment_type": { "const": "ENZYME_INHIBITION_IC50" } } },
+      "if": {
+        "properties": { "experiment_type": { "const": "ENZYME_INHIBITION_IC50" } },
+        "required": ["experiment_type"]
+      },
       "then": { "required": ["enzyme_inhibition"] }
     },
     {
-      "if": { "properties": { "experiment_type": { "const": "MICROBIAL_GROWTH_MATRIX" } } },
+      "if": {
+        "properties": { "experiment_type": { "const": "MICROBIAL_GROWTH_MATRIX" } },
+        "required": ["experiment_type"]
+      },
       "then": { "required": ["microbial_growth"] }
     },
     {
-      "if": { "properties": { "experiment_type": { "const": "MIC_MBC_ASSAY" } } },
+      "if": {
+        "properties": { "experiment_type": { "const": "MIC_MBC_ASSAY" } },
+        "required": ["experiment_type"]
+      },
       "then": { "required": ["mic_mbc"] }
     },
     {
-      "if": { "properties": { "experiment_type": { "const": "ZONE_OF_INHIBITION" } } },
+      "if": {
+        "properties": { "experiment_type": { "const": "ZONE_OF_INHIBITION" } },
+        "required": ["experiment_type"]
+      },
       "then": { "required": ["zone_of_inhibition"] }
     },
     {
-      "if": { "properties": { "experiment_type": { "const": "CUSTOM" } } },
+      "if": {
+        "properties": { "experiment_type": { "const": "CUSTOM" } },
+        "required": ["experiment_type"]
+      },
       "then": { "required": ["custom_protocol"] }
     }
   ]

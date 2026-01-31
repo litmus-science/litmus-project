@@ -25,6 +25,14 @@ class SubmissionStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class EdisonJobType(str, Enum):
+    """Edison Scientific job types."""
+    LITERATURE = "literature"
+    MOLECULES = "molecules"
+    ANALYSIS = "analysis"
+    PRECEDENT = "precedent"
+
+
 # Request schemas
 
 class TranslateRequest(BaseModel):
@@ -56,7 +64,10 @@ class LLMInterpretResponse(BaseModel):
 class EdisonTranslateRequest(BaseModel):
     """Request to translate an Edison query to cloud lab protocol."""
     query: str = Field(..., description="The Edison-style query (e.g., synthesis planning request)")
-    job_type: str = Field("molecules", description="Edison job type: molecules, analysis, literature")
+    job_type: EdisonJobType = Field(
+        EdisonJobType.MOLECULES,
+        description="Edison job type: molecules, analysis, literature, precedent",
+    )
     context: Optional[str] = Field(None, description="Additional context about the experiment")
     provider: Optional[str] = Field(None, description="Target provider (ecl/strateos), or null for all")
 

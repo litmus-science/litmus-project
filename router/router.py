@@ -418,7 +418,11 @@ def route_intake(
     if not isinstance(labs, list):
         raise RoutingError("labs must be a list")
     if not labs:
-        raise RoutingError("labs list cannot be empty")
+        return RoutingResult(
+            top_matches=[],
+            all_matches_count=0,
+            filtered_out={},
+        )
 
     # Check for required intake fields
     if not intake.get("experiment_type"):

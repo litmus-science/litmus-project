@@ -243,17 +243,6 @@ export async function estimateCost(data: Record<string, unknown>): Promise<{
   });
 }
 
-// Cloud labs
-export async function translateToCloudLab(data: {
-  intake: Record<string, unknown>;
-  provider?: string;
-}): Promise<TranslateResponse> {
-  return request(`/cloud-labs/translate`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
-}
-
 // Config
 export async function getConfig(): Promise<{
   auth_disabled: boolean;
@@ -292,23 +281,6 @@ export async function interpretExperiment(
 }
 
 // Cloud Lab - Translation
-export interface TranslationResult {
-  provider: string;
-  format: string;
-  protocol: unknown;
-  protocol_readable: string;
-  success: boolean;
-  errors: Array<{ path: string; code: string; message: string; severity: string }>;
-  warnings: Array<{ path: string; code: string; message: string; severity: string }>;
-  metadata: Record<string, unknown>;
-}
-
-export interface TranslateResponse {
-  translations: Record<string, TranslationResult>;
-  experiment_type: string;
-  title?: string;
-}
-
 export async function translateToCloudLab(data: {
   intake: Record<string, unknown>;
   provider?: string;

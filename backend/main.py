@@ -70,6 +70,7 @@ All endpoints require a Bearer token in the Authorization header or X-API-Key he
 # CORS middleware - Configure allowed origins from environment
 _cors_origins = os.environ.get("LITMUS_CORS_ORIGINS", "").split(",")
 _cors_origins = [o.strip() for o in _cors_origins if o.strip()]
+_cors_origin_regex = os.environ.get("LITMUS_CORS_ORIGIN_REGEX", "").strip() or None
 
 # Check if we're in development mode (auth disabled or debug mode)
 _dev_mode = (
@@ -92,6 +93,7 @@ if not _cors_origins:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
+    allow_origin_regex=_cors_origin_regex,
     allow_credentials=not _dev_mode,  # Can't use credentials with "*" origins
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID"],

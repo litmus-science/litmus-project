@@ -139,6 +139,22 @@ class EdisonLitmusIntegration:
         Returns:
             EdisonToLitmusResult with all outputs from the pipeline
         """
+<<<<<<< HEAD
+=======
+        if isinstance(job_type, str):
+            try:
+                job_type = EdisonJobType(job_type)
+            except ValueError:
+                return EdisonTranslationResult(
+                    success=False,
+                    experiment_type="CUSTOM",
+                    intake={},
+                    error=f"Unsupported Edison job_type: {job_type}",
+                )
+
+        prompt = self._build_prompt(query, job_type, context)
+
+>>>>>>> 3cb083c (refactor and tests)
         try:
             # Step 1: Query Edison for research insights
             edison_response = await self.edison.run_task_until_done(
