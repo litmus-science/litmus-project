@@ -53,6 +53,25 @@ class LLMInterpretResponse(BaseModel):
     error: Optional[str] = None
 
 
+class EdisonTranslateRequest(BaseModel):
+    """Request to translate an Edison query to cloud lab protocol."""
+    query: str = Field(..., description="The Edison-style query (e.g., synthesis planning request)")
+    job_type: str = Field("molecules", description="Edison job type: molecules, analysis, literature")
+    context: Optional[str] = Field(None, description="Additional context about the experiment")
+    provider: Optional[str] = Field(None, description="Target provider (ecl/strateos), or null for all")
+
+
+class EdisonTranslateResponse(BaseModel):
+    """Response from Edison query translation."""
+    success: bool
+    experiment_type: str
+    intake: Dict[str, Any]
+    translations: Optional[Dict[str, Any]] = None
+    suggestions: List[str] = []
+    warnings: List[str] = []
+    error: Optional[str] = None
+
+
 class ValidateForProviderRequest(BaseModel):
     """Request to validate an intake for a specific provider."""
     intake: Dict[str, Any]

@@ -1327,8 +1327,19 @@ from backend.cloud_labs.models import (
     ValidateForProviderRequest, ProviderInfoResponse, ProvidersListResponse,
     SupportedTypesResponse, ValidationIssueResponse,
     LLMInterpretRequest, LLMInterpretResponse,
+    EdisonTranslateRequest, EdisonTranslateResponse,
 )
 from backend.services.experiment_interpreter import ExperimentInterpreter, get_experiment_interpreter
+from backend.services.edison_integration import EdisonLitmusIntegration, get_edison_litmus_integration
+from backend.services.edison_client import EdisonJobType as EdisonJobTypeClient
+
+# Map API job type names to Edison client job types
+_EDISON_JOB_TYPE_MAP = {
+    "literature": EdisonJobTypeClient.LITERATURE,
+    "molecules": EdisonJobTypeClient.MOLECULES,
+    "analysis": EdisonJobTypeClient.ANALYSIS,
+    "precedent": EdisonJobTypeClient.PRECEDENT,
+}
 from backend.models import CloudLabSubmission
 
 
@@ -1395,6 +1406,59 @@ async def interpret_experiment(
         warnings=result.warnings,
         confidence=result.confidence,
         error=result.error,
+    )
+
+
+@app.post("/cloud-labs/edison", response_model=EdisonTranslateResponse, tags=["Cloud Labs"])
+async def translate_edison_query(
+    request: EdisonTranslateRequest,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """
+    Use Edison Scientific for hypothesis generation, then translate to cloud lab protocols.
+
+    This endpoint integrates with Edison Scientific's AI research platform to:
+    1. Query Edison for research insights (literature, molecules, analysis)
+    2. Generate a testable hypothesis from Edison's output
+    3. Create a Litmus experiment specification
+    4. Translate to cloud lab protocols (ECL, Strateos)
+
+    Example queries:
+    - "What is the IC50 of aspirin against COX-2?" (analysis)
+    - "Find synthesis routes for ibuprofen" (molecules)
+    - "What does the literature say about EGFR inhibitors?" (literature)
+
+    Set EDISON_API_KEY for real Edison integration, otherwise uses mock responses.
+    Requires LLM_PROVIDER and API key for hypothesis generation.
+    """
+    integration = get_edison_litmus_integration()
+
+    # Map the request job type to the client's enum
+    job_type = _EDISON_JOB_TYPE_MAP.get(request.job_type.value, EdisonJobTypeClient.MOLECULES)
+
+    # Run the full pipeline: Edison → Hypothesis → Litmus → Cloud Labs
+    result = await integration.research_and_translate(
+        query=request.query,
+        job_type=job_type,
+        additional_context=request.context,
+        translate_to_cloud_labs=True,
+    )
+
+    if not result.success:
+        return EdisonTranslateResponse(
+            success=False,
+            experiment_type=result.experiment_type,
+            intake={},
+            error=result.error,
+        )
+
+    return EdisonTranslateResponse(
+        success=True,
+        experiment_type=result.experiment_type,
+        intake=result.intake,
+        translations=result.translations,
+        suggestions=result.suggestions,
+        warnings=result.warnings,
     )
 
 
