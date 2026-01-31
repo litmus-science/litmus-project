@@ -9,19 +9,15 @@ export default function Home() {
   const router = useRouter();
   const { isAuthenticated, setAuth } = useAuth();
   const [status, setStatus] = useState("Loading...");
-  const [config, setConfigState] = useState<{ auth_disabled: boolean; debug_mode: boolean } | null>(null);
 
   useEffect(() => {
     async function checkAuth() {
-      setStatus("Fetching config...");
+      setStatus("Checking configuration...");
 
       try {
         const cfg = await getConfig();
-        setConfigState(cfg);
-        setStatus(`Config loaded: auth_disabled=${cfg.auth_disabled}`);
 
         if (cfg.auth_disabled) {
-          setStatus("Auth disabled - setting up dev user...");
           setAuth("dev-token", {
             id: "dev-user",
             email: "dev@litmus.science",
@@ -31,20 +27,17 @@ export default function Home() {
             rate_limit_tier: "pro",
             created_at: new Date().toISOString(),
           });
-          setStatus("Redirecting to dashboard...");
-          setTimeout(() => router.push("/dashboard"), 1000);
+          router.push("/dashboard");
           return;
         }
       } catch (err) {
-        setStatus(`Config fetch failed: ${err}`);
+        setStatus("Connecting to server...");
       }
 
       if (isAuthenticated()) {
-        setStatus("Already authenticated - redirecting to dashboard...");
-        setTimeout(() => router.push("/dashboard"), 1000);
+        router.push("/dashboard");
       } else {
-        setStatus("Not authenticated - redirecting to login...");
-        setTimeout(() => router.push("/login"), 1000);
+        router.push("/login");
       }
     }
 
@@ -52,12 +45,13 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen gap-4 p-8">
-      <div className="text-xl font-bold">Litmus Debug</div>
-      <div className="text-sm bg-gray-100 p-4 rounded max-w-lg">
-        <p><strong>Status:</strong> {status}</p>
-        <p><strong>API URL:</strong> {process.env.NEXT_PUBLIC_API_URL || "not set (using localhost:8000)"}</p>
-        {config && <p><strong>Config:</strong> {JSON.stringify(config)}</p>}
+    <div className="flex flex-col items-center justify-center min-h-screen gap-8 p-8">
+      <div className="w-16 h-16 bg-surface-900 flex items-center justify-center">
+        <span className="text-accent font-display text-3xl">L</span>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent"></div>
+        <span className="text-surface-500">{status}</span>
       </div>
     </div>
   );

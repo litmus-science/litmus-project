@@ -3,9 +3,16 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-import { createExperiment, listTemplates, estimateCost } from "@/lib/api";
+import {
+  createExperiment,
+  listTemplates,
+  estimateCost,
+  translateToCloudLab,
+  type TranslateResponse,
+} from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { TemplateListItem } from "@/lib/types";
+import { formatUsd } from "@/lib/format";
 
 const experimentTypes = [
   { value: "sanger", label: "Sanger Sequencing" },
@@ -29,6 +36,18 @@ interface ExperimentForm {
   notes: string;
 }
 
+// Map form experiment types to backend types
+const experimentTypeMap: Record<string, string> = {
+  sanger: "SANGER_PLASMID_VERIFICATION",
+  qpcr: "QPCR_EXPRESSION",
+  cell_viability: "CELL_VIABILITY_IC50",
+  enzyme_inhibition: "ENZYME_INHIBITION_IC50",
+  microbial_growth: "MICROBIAL_GROWTH_MATRIX",
+  mic_mbc: "MIC_MBC_ASSAY",
+  zone_of_inhibition: "ZONE_OF_INHIBITION",
+  custom_protocol: "CUSTOM",
+};
+
 export default function NewExperimentPage() {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
@@ -40,6 +59,12 @@ export default function NewExperimentPage() {
     typical: number;
     high: number;
   } | null>(null);
+
+  // AI-assisted translation state
+  const [useAI, setUseAI] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [translation, setTranslation] = useState<TranslateResponse | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   const {
     register,
@@ -72,6 +97,59 @@ export default function NewExperimentPage() {
         .catch(() => setEstimate(null));
     }
   }, [experimentType]);
+
+  useEffect(() => {
+    if (!useAI) {
+      setShowPreview(false);
+      setTranslation(null);
+    }
+  }, [useAI]);
+
+  // Generate AI-assisted protocol preview
+  const generatePreview = async () => {
+    const formData = watch();
+    if (!formData.experiment_type || !formData.title || !formData.hypothesis_statement) {
+      setError("Please fill in experiment type, title, and hypothesis first");
+      return;
+    }
+
+    setAiLoading(true);
+    setError("");
+    setShowPreview(false);
+    setTranslation(null);
+
+    try {
+      const intake = {
+        experiment_type: experimentTypeMap[formData.experiment_type] || "CUSTOM",
+        title: formData.title,
+        hypothesis: {
+          statement: formData.hypothesis_statement,
+          null_hypothesis: formData.hypothesis_null,
+        },
+        turnaround_budget: {
+          budget_max_usd: formData.budget_max_usd,
+        },
+        deliverables: {
+          minimum_package_level: "standard",
+        },
+        compliance: {
+          bsl: formData.bsl_level,
+        },
+        privacy: formData.privacy,
+        metadata: {
+          notes: formData.notes,
+        },
+      };
+
+      const translateResult = await translateToCloudLab({ intake });
+      setTranslation(translateResult);
+      setShowPreview(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate preview");
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const onSubmit = async (data: ExperimentForm) => {
     setLoading(true);
@@ -110,19 +188,22 @@ export default function NewExperimentPage() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h1 className="text-3xl font-display text-primary mb-8">New Experiment</h1>
+    <div className="max-w-3xl mx-auto px-6 lg:px-8 py-12">
+      <div className="mb-10">
+        <span className="section-label">02 — Create</span>
+        <h1 className="text-4xl font-display text-surface-900">New Experiment</h1>
+      </div>
 
-      <div className="card p-6">
+      <div className="card p-8">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           {error && (
-            <div className="bg-accent-50 border border-accent-200 text-accent px-4 py-3 rounded-lg text-sm">
+            <div className="alert-error">
               {error}
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-surface-500 mb-1">
+            <label className="form-label">
               Experiment Type <span className="text-accent">*</span>
             </label>
             <select
@@ -137,22 +218,26 @@ export default function NewExperimentPage() {
               ))}
             </select>
             {errors.experiment_type && (
-              <p className="mt-1 text-sm text-accent">{errors.experiment_type.message}</p>
+              <p className="form-error">{errors.experiment_type.message}</p>
             )}
           </div>
 
           {estimate && (
-            <div className="bg-primary-50 border border-primary-200 px-4 py-3 rounded-lg">
-              <p className="text-sm text-primary">
+            <div className="bg-accent-50 border-l-2 border-accent px-4 py-3">
+              <p className="text-sm text-surface-700">
                 <span className="font-medium">Estimated cost:</span>{" "}
-                <span className="font-mono">${estimate.low} - ${estimate.high}</span>{" "}
-                <span className="text-surface-400">(typical: ${estimate.typical})</span>
+                <span className="font-mono">
+                  {formatUsd(estimate.low)} - {formatUsd(estimate.high)}
+                </span>{" "}
+                <span className="text-surface-500">
+                  (typical: {formatUsd(estimate.typical)})
+                </span>
               </p>
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-surface-500 mb-1">
+            <label className="form-label">
               Title <span className="text-accent">*</span>
             </label>
             <input
@@ -162,12 +247,12 @@ export default function NewExperimentPage() {
               className="input"
             />
             {errors.title && (
-              <p className="mt-1 text-sm text-accent">{errors.title.message}</p>
+              <p className="form-error">{errors.title.message}</p>
             )}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-surface-500 mb-1">
+            <label className="form-label">
               Hypothesis Statement <span className="text-accent">*</span>
             </label>
             <textarea
@@ -177,12 +262,12 @@ export default function NewExperimentPage() {
               className="input"
             />
             {errors.hypothesis_statement && (
-              <p className="mt-1 text-sm text-accent">{errors.hypothesis_statement.message}</p>
+              <p className="form-error">{errors.hypothesis_statement.message}</p>
             )}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-surface-500 mb-1">
+            <label className="form-label">
               Null Hypothesis <span className="text-accent">*</span>
             </label>
             <textarea
@@ -192,13 +277,13 @@ export default function NewExperimentPage() {
               className="input"
             />
             {errors.hypothesis_null && (
-              <p className="mt-1 text-sm text-accent">{errors.hypothesis_null.message}</p>
+              <p className="form-error">{errors.hypothesis_null.message}</p>
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-surface-500 mb-1">
+              <label className="form-label">
                 Maximum Budget (USD)
               </label>
               <input
@@ -211,7 +296,9 @@ export default function NewExperimentPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-surface-500 mb-1">BSL Level</label>
+              <label className="form-label">
+                BSL Level
+              </label>
               <select
                 {...register("bsl_level")}
                 className="input"
@@ -223,7 +310,9 @@ export default function NewExperimentPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-surface-500 mb-1">Privacy</label>
+            <label className="form-label">
+              Privacy
+            </label>
             <select
               {...register("privacy")}
               className="input"
@@ -234,7 +323,7 @@ export default function NewExperimentPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-surface-500 mb-1">
+            <label className="form-label">
               Additional Notes
             </label>
             <textarea
@@ -245,7 +334,95 @@ export default function NewExperimentPage() {
             />
           </div>
 
-          <div className="flex gap-4 pt-4">
+          {/* AI-Assisted Protocol Generation */}
+          <div className="border-t border-surface-200 pt-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={useAI}
+                    onChange={(e) => setUseAI(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-surface-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-accent-100 peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-surface-300 after:border after:h-5 after:w-5 after:transition-all peer-checked:bg-accent"></div>
+                </label>
+                <div>
+                  <span className="text-sm font-medium text-surface-800">
+                    AI-Assisted Protocol Generation
+                  </span>
+                  <p className="text-xs text-surface-500">
+                    Use AI to extract parameters from your hypothesis and generate cloud lab protocols
+                  </p>
+                </div>
+              </div>
+              {useAI && (
+                <button
+                  type="button"
+                  onClick={generatePreview}
+                  disabled={aiLoading}
+                  className="btn-secondary text-sm disabled:opacity-50"
+                >
+                  {aiLoading ? "Generating..." : "Preview Protocol"}
+                </button>
+              )}
+            </div>
+
+            {/* AI Interpretation Results */}
+            {showPreview && translation && (
+              <div className="space-y-4 bg-surface-50 p-6">
+                {/* Protocol Preview */}
+                <div className="space-y-3">
+                  <p className="text-xs font-mono uppercase tracking-wide text-surface-600">Generated Protocols:</p>
+                  {Object.entries(translation.translations).map(([provider, result]) => (
+                    <div key={provider} className="border border-surface-200 overflow-hidden">
+                      <div className="bg-surface-100 px-4 py-2 flex items-center justify-between">
+                        <span className="text-xs font-mono uppercase tracking-wide text-surface-700">
+                          {provider} ({result.format})
+                        </span>
+                        {result.success ? (
+                          <span className="text-xs text-emerald-600 font-mono">Valid</span>
+                        ) : (
+                          <span className="text-xs text-red-600 font-mono">Errors</span>
+                        )}
+                      </div>
+
+                      {(result.warnings.length > 0 || result.errors.length > 0) && (
+                        <div className="px-4 py-3 bg-white border-b border-surface-200 space-y-2 text-xs">
+                          {result.warnings.length > 0 && (
+                            <div>
+                              <p className="font-mono uppercase tracking-wide text-amber-700 mb-1">Warnings:</p>
+                              <ul className="text-amber-700 space-y-1">
+                                {result.warnings.map((w, i) => (
+                                  <li key={i}>• {w.message}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {result.errors.length > 0 && (
+                            <div>
+                              <p className="font-mono uppercase tracking-wide text-red-700 mb-1">Errors:</p>
+                              <ul className="text-red-700 space-y-1">
+                                {result.errors.map((e, i) => (
+                                  <li key={i}>• {e.message}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <pre className="p-4 text-xs font-mono text-surface-600 overflow-x-auto max-h-48 bg-white">
+                        {result.protocol_readable}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-4 pt-6">
             <button
               type="button"
               onClick={() => router.back()}

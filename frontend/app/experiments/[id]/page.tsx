@@ -7,6 +7,7 @@ import { getExperiment, cancelExperiment } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { Experiment } from "@/lib/types";
+import { formatUsd } from "@/lib/format";
 
 export default function ExperimentDetailPage() {
   const router = useRouter();
@@ -157,10 +158,10 @@ export default function ExperimentDetailPage() {
             <h2 className="text-sm font-medium text-gray-500 mb-2">Cost</h2>
             <div className="text-sm">
               {experiment.cost.estimated_usd && (
-                <p>Estimated: ${experiment.cost.estimated_usd.toFixed(2)}</p>
+                <p>Estimated: {formatUsd(experiment.cost.estimated_usd)}</p>
               )}
               {experiment.cost.final_usd && (
-                <p>Final: ${experiment.cost.final_usd.toFixed(2)}</p>
+                <p>Final: {formatUsd(experiment.cost.final_usd)}</p>
               )}
               <p className="text-gray-500">
                 Payment status: {experiment.cost.payment_status}

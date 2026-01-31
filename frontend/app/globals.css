@@ -2,42 +2,110 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @layer base {
   html {
     @apply antialiased;
+    scroll-behavior: smooth;
   }
 
   body {
-    @apply bg-surface-off-white text-surface-500 font-body;
+    @apply bg-surface-off-white text-surface-800 font-body;
+    font-size: 18px;
+    line-height: 1.7;
+  }
+
+  ::selection {
+    @apply bg-accent text-white;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    @apply font-display text-primary;
+    @apply font-display text-surface-900;
+    letter-spacing: -0.01em;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-primary text-white hover:bg-primary-light px-4 py-2 rounded-lg font-medium transition-colors;
+    @apply bg-accent text-white hover:bg-surface-900 px-6 py-3 text-sm font-medium transition-all;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-2px);
   }
 
   .btn-secondary {
-    @apply bg-surface-100 text-surface-500 hover:bg-surface-200 px-4 py-2 rounded-lg font-medium transition-colors;
+    @apply bg-surface-100 text-surface-600 hover:bg-surface-200 px-6 py-3 text-sm font-medium transition-colors;
+    letter-spacing: 0.05em;
   }
 
   .btn-accent {
-    @apply bg-accent text-white hover:bg-accent-600 px-4 py-2 rounded-lg font-medium transition-colors;
+    @apply bg-accent text-white hover:bg-accent-dim px-6 py-3 text-sm font-medium transition-all;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
   }
 
   .card {
-    @apply bg-surface-white rounded-xl border border-surface-100 shadow-sm;
+    @apply bg-white border-t-2 border-t-accent border-surface-200 shadow-sm transition-all;
+    border-left: 1px solid;
+    border-right: 1px solid;
+    border-bottom: 1px solid;
+    @apply border-l-surface-200 border-r-surface-200 border-b-surface-200;
+  }
+
+  .card:hover {
+    @apply shadow-md;
   }
 
   .input {
-    @apply block w-full px-3 py-2 bg-surface-white border border-surface-200 rounded-lg
-           focus:outline-none focus:ring-2 focus:ring-primary-light focus:border-transparent
-           placeholder:text-surface-300;
+    @apply block w-full px-4 py-3 bg-white border border-surface-200
+           focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent
+           placeholder:text-surface-400 text-surface-800;
   }
+
+  .form-label {
+    @apply block text-sm font-mono uppercase tracking-wide text-surface-500 mb-2;
+  }
+
+  .form-error {
+    @apply mt-2 text-sm text-red-600;
+  }
+
+  .alert-error {
+    @apply bg-red-50 border-l-2 border-red-500 text-red-700 px-4 py-3 text-sm;
+  }
+
+  .section-label {
+    @apply font-mono text-xs text-accent uppercase tracking-widest-plus mb-4 block;
+  }
+
+  .lead-text {
+    @apply text-xl text-surface-500 leading-relaxed;
+  }
+}
+
+/* Custom scrollbar for webkit browsers */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-surface-100;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-surface-300 rounded;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-surface-400;
 }
