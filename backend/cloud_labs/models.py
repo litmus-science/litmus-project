@@ -31,6 +31,26 @@ class TranslateRequest(BaseModel):
     """Request to translate an intake to cloud lab format."""
     intake: Dict[str, Any] = Field(..., description="The Litmus experiment intake specification")
     provider: Optional[str] = Field(None, description="Target provider (ecl/strateos), or null for all compatible")
+    use_llm: bool = Field(False, description="Use LLM to interpret and enrich the intake before translation")
+
+
+class LLMInterpretRequest(BaseModel):
+    """Request to interpret an experiment using LLM."""
+    experiment_type: str = Field(..., description="Type of experiment (e.g., QPCR_EXPRESSION)")
+    title: str = Field(..., description="Experiment title")
+    hypothesis: str = Field(..., description="Hypothesis statement")
+    notes: Optional[str] = Field(None, description="Additional notes from user")
+    existing_intake: Optional[Dict[str, Any]] = Field(None, description="Existing intake data to enhance")
+
+
+class LLMInterpretResponse(BaseModel):
+    """Response from LLM interpretation."""
+    success: bool
+    enriched_intake: Dict[str, Any]
+    suggestions: List[str] = []
+    warnings: List[str] = []
+    confidence: float = 0.0
+    error: Optional[str] = None
 
 
 class ValidateForProviderRequest(BaseModel):

@@ -263,3 +263,59 @@ export async function getConfig(): Promise<{
   const response = await fetch(`${API_BASE}/config`);
   return response.json();
 }
+
+// Cloud Lab - LLM Interpretation
+export interface LLMInterpretRequest {
+  experiment_type: string;
+  title: string;
+  hypothesis: string;
+  notes?: string;
+  existing_intake?: Record<string, unknown>;
+}
+
+export interface LLMInterpretResponse {
+  success: boolean;
+  enriched_intake: Record<string, unknown>;
+  suggestions: string[];
+  warnings: string[];
+  confidence: number;
+  error?: string;
+}
+
+export async function interpretExperiment(
+  data: LLMInterpretRequest
+): Promise<LLMInterpretResponse> {
+  return request<LLMInterpretResponse>("/cloud-labs/interpret", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// Cloud Lab - Translation
+export interface TranslationResult {
+  provider: string;
+  format: string;
+  protocol: unknown;
+  protocol_readable: string;
+  success: boolean;
+  errors: Array<{ path: string; code: string; message: string; severity: string }>;
+  warnings: Array<{ path: string; code: string; message: string; severity: string }>;
+  metadata: Record<string, unknown>;
+}
+
+export interface TranslateResponse {
+  translations: Record<string, TranslationResult>;
+  experiment_type: string;
+  title?: string;
+}
+
+export async function translateToCloudLab(data: {
+  intake: Record<string, unknown>;
+  provider?: string;
+  use_llm?: boolean;
+}): Promise<TranslateResponse> {
+  return request<TranslateResponse>("/cloud-labs/translate", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}

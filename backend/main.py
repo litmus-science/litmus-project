@@ -1326,7 +1326,9 @@ from backend.cloud_labs.models import (
     TranslateRequest, TranslateResponse, TranslationResultResponse,
     ValidateForProviderRequest, ProviderInfoResponse, ProvidersListResponse,
     SupportedTypesResponse, ValidationIssueResponse,
+    LLMInterpretRequest, LLMInterpretResponse,
 )
+from backend.services.experiment_interpreter import ExperimentInterpreter, get_experiment_interpreter
 from backend.models import CloudLabSubmission
 
 
@@ -1362,6 +1364,40 @@ async def get_supported_types(
     )
 
 
+@app.post("/cloud-labs/interpret", response_model=LLMInterpretResponse, tags=["Cloud Labs"])
+async def interpret_experiment(
+    request: LLMInterpretRequest,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """
+    Use LLM to interpret an experiment description and extract structured parameters.
+
+    Takes natural language input (hypothesis, notes) and extracts experiment
+    parameters that can be used for cloud lab translation.
+
+    Requires LLM_PROVIDER environment variable set to 'anthropic' or 'openai',
+    along with the corresponding API key (ANTHROPIC_API_KEY or OPENAI_API_KEY).
+    """
+    interpreter = get_experiment_interpreter()
+
+    result = await interpreter.interpret(
+        experiment_type=request.experiment_type,
+        title=request.title,
+        hypothesis=request.hypothesis,
+        notes=request.notes,
+        existing_intake=request.existing_intake,
+    )
+
+    return LLMInterpretResponse(
+        success=result.success,
+        enriched_intake=result.enriched_intake,
+        suggestions=result.suggestions,
+        warnings=result.warnings,
+        confidence=result.confidence,
+        error=result.error,
+    )
+
+
 @app.post("/cloud-labs/translate", response_model=TranslateResponse, tags=["Cloud Labs"])
 async def translate_to_cloud_lab(
     request: TranslateRequest,
@@ -1375,9 +1411,25 @@ async def translate_to_cloud_lab(
     - Autoprotocol (JSON) for Strateos
 
     If no provider is specified, translates for all compatible providers.
+
+    Set use_llm=true to have an LLM interpret and enrich the intake before translation.
+    This extracts additional parameters from the hypothesis and notes fields.
     """
     intake = request.intake
     provider = request.provider
+
+    # If LLM interpretation is requested, enrich the intake first
+    if request.use_llm:
+        interpreter = get_experiment_interpreter()
+        interpretation = await interpreter.interpret(
+            experiment_type=intake.get("experiment_type", "CUSTOM"),
+            title=intake.get("title", "Untitled"),
+            hypothesis=intake.get("hypothesis", {}).get("statement", ""),
+            notes=intake.get("notes"),
+            existing_intake=intake,
+        )
+        if interpretation.success:
+            intake = interpretation.enriched_intake
 
     try:
         results = do_translate_intake(intake, provider)
