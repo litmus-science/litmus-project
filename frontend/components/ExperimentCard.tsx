@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { Experiment } from "@/lib/types";
+import { formatUsd } from "@/lib/format";
 import { StatusBadge } from "./StatusBadge";
 
 export function ExperimentCard({ experiment }: { experiment: Experiment }) {
@@ -10,23 +11,23 @@ export function ExperimentCard({ experiment }: { experiment: Experiment }) {
 
   return (
     <Link href={`/experiments/${experiment.id}`}>
-      <div className="card p-5 hover:shadow-md hover:border-surface-200 transition-all group">
-        <div className="flex justify-between items-start mb-3">
-          <h3 className="font-display text-lg text-primary group-hover:text-primary-light transition-colors truncate pr-2">
+      <div className="card p-6 hover:shadow-lg transition-all group">
+        <div className="flex justify-between items-start mb-4">
+          <h3 className="font-display text-xl text-surface-900 group-hover:text-accent transition-colors truncate pr-3">
             {title}
           </h3>
           <StatusBadge status={experiment.status} />
         </div>
-        <p className="text-sm text-surface-400 mb-4 font-medium">
+        <p className="text-sm text-surface-500 mb-4 font-mono uppercase tracking-wide">
           {spec.experiment_type}
         </p>
-        <div className="flex justify-between text-xs text-surface-300 pt-3 border-t border-surface-100">
+        <div className="flex justify-between text-xs text-surface-400 pt-4 border-t border-surface-200">
           <span>
             {new Date(experiment.created_at).toLocaleDateString()}
           </span>
           {experiment.cost.estimated_usd && (
-            <span className="font-mono text-primary-light font-medium">
-              ${experiment.cost.estimated_usd.toFixed(2)}
+            <span className="font-mono text-accent font-medium">
+              {formatUsd(experiment.cost.estimated_usd)}
             </span>
           )}
         </div>

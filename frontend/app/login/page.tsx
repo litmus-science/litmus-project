@@ -48,34 +48,34 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full">
-        <div className="card p-8">
-          <div className="text-center mb-8">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-litmus-base-teal to-litmus-base-blue flex items-center justify-center mx-auto mb-4">
-              <span className="text-white font-display text-2xl">L</span>
+        <div className="card p-10">
+          <div className="text-center mb-10">
+            <div className="w-12 h-12 bg-surface-900 flex items-center justify-center mx-auto mb-6">
+              <span className="text-accent font-display text-2xl">L</span>
             </div>
-            <h2 className="text-2xl font-display text-primary">
-              Sign in to Litmus
+            <h2 className="text-3xl font-display text-surface-900">
+              Sign In
             </h2>
-            <p className="mt-2 text-sm text-surface-400">
+            <p className="mt-3 text-sm text-surface-500">
               Or{" "}
               <Link
                 href="/register"
-                className="font-medium text-primary-light hover:text-primary transition-colors"
+                className="text-accent hover:text-accent-dim transition-colors"
               >
                 create a new account
               </Link>
             </p>
           </div>
 
-          <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
+          <form className="space-y-6" onSubmit={handleSubmit(onSubmit)}>
             {error && (
-              <div className="bg-accent-50 border border-accent-200 text-accent px-4 py-3 rounded-lg text-sm">
+              <div className="alert-error">
                 {error}
               </div>
             )}
 
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-surface-500 mb-1">
+              <label htmlFor="email" className="form-label">
                 Email address
               </label>
               <input
@@ -90,12 +90,12 @@ export default function LoginPage() {
                 className="input"
               />
               {errors.email && (
-                <p className="mt-1 text-sm text-accent">{errors.email.message}</p>
+                <p className="form-error">{errors.email.message}</p>
               )}
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-surface-500 mb-1">
+              <label htmlFor="password" className="form-label">
                 Password
               </label>
               <input
@@ -104,7 +104,7 @@ export default function LoginPage() {
                 className="input"
               />
               {errors.password && (
-                <p className="mt-1 text-sm text-accent">{errors.password.message}</p>
+                <p className="form-error">{errors.password.message}</p>
               )}
             </div>
 

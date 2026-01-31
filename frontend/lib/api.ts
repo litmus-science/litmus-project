@@ -12,6 +12,31 @@ import type {
   SubmitResultsResponse,
 } from "./types";
 
+export type ValidationIssue = {
+  path: string;
+  code: string;
+  message: string;
+  severity: string;
+  suggestion?: string;
+};
+
+export type TranslationResult = {
+  provider: string;
+  format: string;
+  protocol?: unknown;
+  protocol_readable: string;
+  success: boolean;
+  errors: ValidationIssue[];
+  warnings: ValidationIssue[];
+  metadata: Record<string, unknown>;
+};
+
+export type TranslateResponse = {
+  translations: Record<string, TranslationResult>;
+  experiment_type: string;
+  title?: string | null;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 class ApiError extends Error {
@@ -213,6 +238,17 @@ export async function estimateCost(data: Record<string, unknown>): Promise<{
   operator_availability: string;
 }> {
   return request(`/estimate`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// Cloud labs
+export async function translateToCloudLab(data: {
+  intake: Record<string, unknown>;
+  provider?: string;
+}): Promise<TranslateResponse> {
+  return request(`/cloud-labs/translate`, {
     method: "POST",
     body: JSON.stringify(data),
   });

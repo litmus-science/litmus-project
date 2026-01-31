@@ -8,6 +8,7 @@ import { getExperiment, claimJob } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { Experiment } from "@/lib/types";
+import { formatUsd } from "@/lib/format";
 
 interface ClaimForm {
   equipment_confirmation: boolean;
@@ -140,7 +141,7 @@ export default function JobDetailPage() {
           <div className="bg-green-50 rounded-lg p-4">
             <p className="text-sm text-green-800">Budget</p>
             <p className="text-2xl font-bold text-green-600">
-              ${experiment.cost.estimated_usd?.toFixed(2) || "TBD"}
+              {experiment.cost.estimated_usd ? formatUsd(experiment.cost.estimated_usd) : "TBD"}
             </p>
           </div>
 

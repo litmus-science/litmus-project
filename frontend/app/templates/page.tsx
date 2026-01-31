@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { listTemplates, getTemplate } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { TemplateListItem, Template } from "@/lib/types";
+import { formatUsdRange } from "@/lib/format";
 
 const categories = [
   { value: "", label: "All Categories" },
@@ -118,7 +119,7 @@ export default function TemplatesPage() {
                 </div>
                 {template.estimated_cost_range && (
                   <p className="text-xs text-gray-500 mt-2">
-                    Est. cost: {template.estimated_cost_range}
+                    Est. cost: {formatUsdRange(template.estimated_cost_range)}
                   </p>
                 )}
               </button>
