@@ -66,15 +66,30 @@ async function request<T>(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Request failed" }));
-    // Handle both string and object detail formats
+    const error = (await response.json().catch(() => ({ message: "Request failed" }))) as unknown;
+    const isRecord = (value: unknown): value is Record<string, unknown> =>
+      typeof value === "object" && value !== null;
     let message = "Request failed";
-    if (typeof error.detail === "string") {
-      message = error.detail;
-    } else if (error.detail?.message) {
-      message = error.detail.message;
-    } else if (error.message) {
-      message = error.message;
+    if (typeof error === "string") {
+      message = error;
+    } else if (isRecord(error)) {
+      const detail = error.detail;
+      if (typeof detail === "string") {
+        message = detail;
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        const first = detail[0];
+        if (isRecord(first)) {
+          const msg = typeof first.msg === "string" ? first.msg : undefined;
+          const loc = Array.isArray(first.loc)
+            ? first.loc.map((part) => String(part)).join(".")
+            : undefined;
+          message = loc && msg ? `${loc}: ${msg}` : msg || message;
+        }
+      } else if (isRecord(detail) && typeof detail.message === "string") {
+        message = detail.message;
+      } else if (typeof error.message === "string") {
+        message = error.message;
+      }
     }
     throw new ApiError(response.status, message);
   }

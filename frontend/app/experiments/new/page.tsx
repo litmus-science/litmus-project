@@ -3,57 +3,22 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-import {
-  createExperiment,
-  listTemplates,
-  estimateCost,
-  translateToCloudLab,
-  type TranslateResponse,
-} from "@/lib/api";
+import { createExperiment, estimateCost, translateToCloudLab, type TranslateResponse } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { TemplateListItem } from "@/lib/types";
 import { formatUsd } from "@/lib/format";
-
-const experimentTypes = [
-  { value: "sanger", label: "Sanger Sequencing" },
-  { value: "qpcr", label: "qPCR" },
-  { value: "cell_viability", label: "Cell Viability Assay" },
-  { value: "enzyme_inhibition", label: "Enzyme Inhibition Assay" },
-  { value: "microbial_growth", label: "Microbial Growth Curve" },
-  { value: "mic_mbc", label: "MIC/MBC Determination" },
-  { value: "zone_of_inhibition", label: "Zone of Inhibition" },
-  { value: "custom_protocol", label: "Custom Protocol" },
-];
-
-interface ExperimentForm {
-  experiment_type: string;
-  title: string;
-  hypothesis_statement: string;
-  hypothesis_null: string;
-  budget_max_usd: number;
-  bsl_level: string;
-  privacy: string;
-  notes: string;
-}
-
-// Map form experiment types to backend types
-const experimentTypeMap: Record<string, string> = {
-  sanger: "SANGER_PLASMID_VERIFICATION",
-  qpcr: "QPCR_EXPRESSION",
-  cell_viability: "CELL_VIABILITY_IC50",
-  enzyme_inhibition: "ENZYME_INHIBITION_IC50",
-  microbial_growth: "MICROBIAL_GROWTH_MATRIX",
-  mic_mbc: "MIC_MBC_ASSAY",
-  zone_of_inhibition: "ZONE_OF_INHIBITION",
-  custom_protocol: "CUSTOM",
-};
+import {
+  experimentTypes,
+  experimentTypeMap,
+  isExperimentTypeValue,
+  sampleExperiments,
+  type ExperimentForm,
+} from "@/lib/experimentSamples";
 
 export default function NewExperimentPage() {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [templates, setTemplates] = useState<TemplateListItem[]>([]);
   const [estimate, setEstimate] = useState<{
     low: number;
     typical: number;
@@ -87,10 +52,7 @@ export default function NewExperimentPage() {
   useEffect(() => {
     if (!isAuthenticated()) {
       router.push("/login");
-      return;
     }
-
-    listTemplates().then((data) => setTemplates(data.templates)).catch(console.error);
   }, [isAuthenticated, router]);
 
   useEffect(() => {
@@ -108,58 +70,23 @@ export default function NewExperimentPage() {
     }
   }, [useAI]);
 
-  // Generate random example from CSV
+  // Generate random example from sample data
   const generateRandomExample = async () => {
     setGeneratingExample(true);
     setError("");
 
     try {
-      const response = await fetch("/sample-experiments.csv");
-      const csvText = await response.text();
+      if (sampleExperiments.length === 0) {
+        throw new Error("No sample experiments available");
+      }
 
-      // Parse CSV (skip header row)
-      const lines = csvText.trim().split("\n");
-      const header = lines[0].split(",");
-      const dataLines = lines.slice(1);
-
-      // Parse each line, handling commas within fields
-      const experiments: ExperimentForm[] = dataLines.map((line) => {
-        const values: string[] = [];
-        let current = "";
-        let inQuotes = false;
-
-        for (const char of line) {
-          if (char === '"') {
-            inQuotes = !inQuotes;
-          } else if (char === "," && !inQuotes) {
-            values.push(current.trim());
-            current = "";
-          } else {
-            current += char;
-          }
-        }
-        values.push(current.trim());
-
-        return {
-          experiment_type: values[0],
-          title: values[1],
-          hypothesis_statement: values[2],
-          hypothesis_null: values[3],
-          budget_max_usd: parseInt(values[4], 10),
-          bsl_level: values[5],
-          privacy: values[6],
-          notes: values[7] || "",
-        };
-      });
-
-      // Select random experiment
-      const randomIndex = Math.floor(Math.random() * experiments.length);
-      const selected = experiments[randomIndex];
+      const randomIndex = Math.floor(Math.random() * sampleExperiments.length);
+      const selected = sampleExperiments[randomIndex];
 
       // Reset form with selected values
       reset(selected);
     } catch (err) {
-      setError("Failed to load sample experiments");
+      setError(err instanceof Error ? err.message : "Failed to load sample experiments");
       console.error(err);
     } finally {
       setGeneratingExample(false);
@@ -180,8 +107,12 @@ export default function NewExperimentPage() {
     setTranslation(null);
 
     try {
+      const backendExperimentType = isExperimentTypeValue(formData.experiment_type)
+        ? experimentTypeMap[formData.experiment_type]
+        : "CUSTOM";
+
       const intake = {
-        experiment_type: experimentTypeMap[formData.experiment_type] || "CUSTOM",
+        experiment_type: backendExperimentType,
         title: formData.title,
         hypothesis: {
           statement: formData.hypothesis_statement,
