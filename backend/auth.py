@@ -33,8 +33,9 @@ if not SECRET_KEY:
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Password hashing - use argon2 (no 72-byte limit, no bcrypt backend detection bug)
+# bcrypt kept for backward compatibility with existing hashed passwords
+pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
 
 # Security schemes
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -68,7 +69,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def get_password_hash(password: str) -> str:
-    """Hash a password."""
+    """Hash a password using argon2."""
     return pwd_context.hash(password)
 
 
