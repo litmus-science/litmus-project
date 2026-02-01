@@ -1,7 +1,7 @@
 """
 LLM Service abstraction for experiment translation.
 
-Supports both Anthropic Claude and OpenAI GPT-4 as providers,
+Supports Anthropic, OpenAI, and OpenRouter providers,
 configurable via environment variable.
 """
 
@@ -199,6 +199,94 @@ class OpenAIProvider(LLMProvider):
         return json.loads(content)
 
 
+class OpenRouterProvider(LLMProvider):
+    """OpenRouter OpenAI-compatible provider."""
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+    ):
+        self.api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
+        if not self.api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable is required")
+        self.model = model or os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o")
+        self.base_url = base_url or os.environ.get(
+            "OPENROUTER_BASE_URL",
+            "https://openrouter.ai/api/v1",
+        )
+        self._client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            try:
+                import openai
+                self._client = openai.AsyncOpenAI(
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                )
+            except ImportError:
+                raise ImportError("openai package is required. Install with: pip install openai")
+        return self._client
+
+    async def generate(
+        self,
+        prompt: str,
+        system_prompt: str | None = None,
+        temperature: float = 0.2,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        """Generate a response using OpenRouter."""
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        choice = response.choices[0]
+        return LLMResponse(
+            content=choice.message.content,
+            model=response.model,
+            usage={
+                "input_tokens": response.usage.prompt_tokens,
+                "output_tokens": response.usage.completion_tokens,
+            } if response.usage else None,
+            raw_response=response,
+        )
+
+    async def generate_json(
+        self,
+        prompt: str,
+        system_prompt: str | None = None,
+        temperature: float = 0.1,
+        max_tokens: int = 4096,
+    ) -> dict:
+        """Generate a JSON response using OpenRouter with JSON mode."""
+        messages = []
+        json_system = (system_prompt or "") + "\n\nYou must respond with valid JSON only."
+        messages.append({"role": "system", "content": json_system})
+        messages.append({"role": "user", "content": prompt})
+
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+        )
+
+        content = response.choices[0].message.content
+        return json.loads(content)
+
+
 class LLMService:
     """
     Unified LLM service that supports multiple providers.
@@ -218,6 +306,8 @@ class LLMService:
                 self._provider = AnthropicProvider()
             elif self.provider_name == "openai":
                 self._provider = OpenAIProvider()
+            elif self.provider_name == "openrouter":
+                self._provider = OpenRouterProvider()
             else:
                 raise ValueError(f"Unknown LLM provider: {self.provider_name}")
         return self._provider
