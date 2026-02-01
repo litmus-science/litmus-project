@@ -1,5 +1,10 @@
+const path = require('path');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Fix stale build issues caused by multiple lockfiles detection
+  outputFileTracingRoot: path.join(__dirname, '../'),
+
   async rewrites() {
     return [
       {
