@@ -10,6 +10,7 @@ from typing import Any
 
 from .llm_service import LLMService, get_llm_service
 from .prompts import SYSTEM_PROMPT, get_interpretation_prompt
+from .experiment_types import get_experiment_field_name
 
 
 @dataclass
@@ -124,7 +125,7 @@ class ExperimentInterpreter:
         result["hypothesis"]["statement"] = hypothesis
 
         # Merge experiment-specific section
-        field_name = self._get_field_name(experiment_type)
+        field_name = get_experiment_field_name(experiment_type)
         if field_name in interpreted:
             if field_name not in result:
                 result[field_name] = {}
@@ -144,14 +145,14 @@ class ExperimentInterpreter:
 
         # Merge materials
         if "materials_provided" in interpreted:
-            if "materials_provided" not in result:
-                result["materials_provided"] = []
+            materials = list(result.get("materials_provided", []))
             # Convert to proper format if needed
             for material in interpreted["materials_provided"]:
                 if isinstance(material, str):
-                    result["materials_provided"].append({"name": material})
+                    materials.append({"name": material})
                 else:
-                    result["materials_provided"].append(material)
+                    materials.append(material)
+            result["materials_provided"] = materials
 
         return result
 
@@ -164,21 +165,6 @@ class ExperimentInterpreter:
             else:
                 result[key] = value
         return result
-
-    def _get_field_name(self, experiment_type: str) -> str:
-        """Map experiment type to its field name."""
-        mapping = {
-            "SANGER_PLASMID_VERIFICATION": "sanger",
-            "QPCR_EXPRESSION": "qpcr",
-            "CELL_VIABILITY_IC50": "cell_viability",
-            "ENZYME_INHIBITION_IC50": "enzyme_inhibition",
-            "MICROBIAL_GROWTH_MATRIX": "microbial_growth",
-            "MIC_MBC_ASSAY": "mic_mbc",
-            "ZONE_OF_INHIBITION": "zone_of_inhibition",
-            "CUSTOM": "custom_protocol",
-        }
-        return mapping.get(experiment_type, "custom_protocol")
-
 
 # Singleton instance
 _interpreter: ExperimentInterpreter | None = None

@@ -2,6 +2,7 @@
 
 from .ecl_context import ECL_CONTEXT
 from .strateos_context import STRATEOS_CONTEXT
+from ..experiment_types import get_experiment_field_name
 
 SYSTEM_PROMPT = f"""You are an expert laboratory scientist and protocol designer. Your role is to interpret natural language experiment descriptions and extract structured parameters for automated cloud laboratory systems.
 
@@ -294,7 +295,7 @@ def get_interpretation_prompt(
         The formatted prompt for the LLM
     """
     type_context = get_experiment_type_context(experiment_type)
-    field_name = _get_field_name(experiment_type)
+    field_name = get_experiment_field_name(experiment_type)
 
     prompt = f"""
 {type_context}
@@ -342,18 +343,3 @@ Example structure:
 ```
 """
     return prompt
-
-
-def _get_field_name(experiment_type: str) -> str:
-    """Map experiment type to its field name."""
-    mapping = {
-        "SANGER_PLASMID_VERIFICATION": "sanger",
-        "QPCR_EXPRESSION": "qpcr",
-        "CELL_VIABILITY_IC50": "cell_viability",
-        "ENZYME_INHIBITION_IC50": "enzyme_inhibition",
-        "MICROBIAL_GROWTH_MATRIX": "microbial_growth",
-        "MIC_MBC_ASSAY": "mic_mbc",
-        "ZONE_OF_INHIBITION": "zone_of_inhibition",
-        "CUSTOM": "custom_protocol",
-    }
-    return mapping.get(experiment_type, "custom_protocol")

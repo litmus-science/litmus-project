@@ -55,8 +55,8 @@ class LLMInterpretResponse(BaseModel):
     """Response from LLM interpretation."""
     success: bool
     enriched_intake: Dict[str, Any]
-    suggestions: List[str] = []
-    warnings: List[str] = []
+    suggestions: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
     confidence: float = 0.0
     error: Optional[str] = None
 
@@ -78,8 +78,8 @@ class EdisonTranslateResponse(BaseModel):
     experiment_type: str
     intake: Dict[str, Any]
     translations: Optional[Dict[str, Any]] = None
-    suggestions: List[str] = []
-    warnings: List[str] = []
+    suggestions: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
     error: Optional[str] = None
 
 
@@ -115,9 +115,9 @@ class TranslationResultResponse(BaseModel):
     protocol: Optional[Any] = None
     protocol_readable: str
     success: bool
-    errors: List[ValidationIssueResponse] = []
-    warnings: List[ValidationIssueResponse] = []
-    metadata: Dict[str, Any] = {}
+    errors: List[ValidationIssueResponse] = Field(default_factory=list)
+    warnings: List[ValidationIssueResponse] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class TranslateResponse(BaseModel):
@@ -180,9 +180,9 @@ class SubmissionResultsResponse(BaseModel):
     submission_id: str
     status: SubmissionStatus
     completed_at: Optional[datetime] = None
-    raw_data_urls: List[str] = []
-    processed_data: Dict[str, Any] = {}
-    metadata: Dict[str, Any] = {}
+    raw_data_urls: List[str] = Field(default_factory=list)
+    processed_data: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 # Database model schema (for storing submissions)
