@@ -46,7 +46,7 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
   const [hasMore, setHasMore] = useState(false);
   const [cursor, setCursor] = useState<string | undefined>(undefined);
 
-  const fetchHypotheses = useCallback(async (reset = false) => {
+  const fetchHypotheses = useCallback(async ({ reset = false, cursor: nextCursor }: { reset?: boolean; cursor?: string } = {}) => {
     setLoading(true);
     setError("");
 
@@ -55,8 +55,8 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
       if (filterType !== "all") {
         params.experiment_type = filterType;
       }
-      if (!reset && cursor) {
-        params.cursor = cursor;
+      if (!reset && nextCursor) {
+        params.cursor = nextCursor;
       }
 
       const response = await listHypotheses(params);
@@ -78,11 +78,11 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
     } finally {
       setLoading(false);
     }
-  }, [filterType, cursor]);
+  }, [filterType]);
 
   useEffect(() => {
     if (isOpen) {
-      fetchHypotheses(true);
+      fetchHypotheses({ reset: true });
     }
   }, [isOpen, filterType, fetchHypotheses]);
 
@@ -96,9 +96,9 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
 
   const handleLoadMore = useCallback(() => {
     if (!loading && hasMore) {
-      fetchHypotheses(false);
+      fetchHypotheses({ cursor });
     }
-  }, [loading, hasMore, fetchHypotheses]);
+  }, [loading, hasMore, cursor, fetchHypotheses]);
 
   const handleBackdropClick = useCallback(
     (e: React.MouseEvent) => {
