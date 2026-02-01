@@ -80,8 +80,18 @@ export default function NewExperimentPage() {
         throw new Error("No sample experiments available");
       }
 
-      const randomIndex = Math.floor(Math.random() * sampleExperiments.length);
-      const selected = sampleExperiments[randomIndex];
+      // If an experiment type is already selected, filter to matching samples
+      const currentType = watch("experiment_type");
+      const filteredSamples = currentType
+        ? sampleExperiments.filter((s) => s.experiment_type === currentType)
+        : sampleExperiments;
+
+      if (filteredSamples.length === 0) {
+        throw new Error(`No sample experiments available for ${currentType}`);
+      }
+
+      const randomIndex = Math.floor(Math.random() * filteredSamples.length);
+      const selected = filteredSamples[randomIndex];
 
       // Reset form with selected values
       reset(selected);

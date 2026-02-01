@@ -76,42 +76,16 @@ export type ExperimentSample = Omit<ExperimentForm, "experiment_type"> & {
 export const sampleExperiments: ExperimentSample[] = [
   {
     experiment_type: "sanger",
-    title: "pUC19-GFP plasmid verification sequencing",
+    title: "Bxb1 integrase-mediated attL/attR junction verification",
     hypothesis_statement:
-      "The cloned GFP insert in pUC19 vector contains the correct 720bp sequence with no mutations at the BamHI/EcoRI cloning sites",
+      "Bxb1-mediated integration at the AAVS1 safe harbor locus produces correct attL and attR junction sequences confirming precise transgene insertion",
     hypothesis_null:
-      "The GFP insert sequence differs from the expected reference or contains mutations at the cloning junctions",
-    budget_max_usd: 150,
-    bsl_level: "BSL1",
-    privacy: "open",
-    notes:
-      "Forward and reverse sequencing primers targeting vector backbone. Need confirmation of insert orientation.",
-  },
-  {
-    experiment_type: "sanger",
-    title: "CRISPR guide RNA plasmid validation",
-    hypothesis_statement:
-      "The sgRNA targeting BRCA1 exon 10 has been correctly inserted into the pX459 backbone with the U6 promoter intact",
-    hypothesis_null:
-      "The sgRNA sequence is incorrect or the U6 promoter region has been disrupted during cloning",
+      "Junction sequences show aberrant recombination partial integration or off-target insertion events",
     budget_max_usd: 200,
     bsl_level: "BSL1",
     privacy: "confidential",
     notes:
-      "Critical for upcoming gene editing experiment. Please prioritize accuracy over turnaround time.",
-  },
-  {
-    experiment_type: "sanger",
-    title: "Gibson assembly verification of 3-fragment construct",
-    hypothesis_statement:
-      "All three DNA fragments (promoter + coding sequence + terminator) are correctly assembled in the expected order without frameshifts",
-    hypothesis_null:
-      "One or more junctions contain errors or the fragments are assembled in incorrect order",
-    budget_max_usd: 175,
-    bsl_level: "BSL1",
-    privacy: "open",
-    notes:
-      "Gibson assembly of synthetic biology construct. Junctions at positions 450 and 1200 need verification.",
+      "Verify both 5' attL and 3' attR junctions using primers flanking integration site. Compare WT Bxb1 vs engineered high-fidelity variant.",
   },
   {
     experiment_type: "qpcr",
@@ -346,44 +320,5 @@ export const sampleExperiments: ExperimentSample[] = [
     privacy: "confidential",
     notes:
       "Test against panel: L. monocytogenes S. aureus E. coli Salmonella. Spot-on-lawn assay.",
-  },
-  {
-    experiment_type: "custom_protocol",
-    title: "Protein expression optimization using Design of Experiments",
-    hypothesis_statement:
-      "DOE-optimized conditions increase GFP expression yield by >2-fold compared to standard IPTG induction in BL21(DE3)",
-    hypothesis_null:
-      "DOE approach does not identify conditions that significantly improve protein expression over standard protocol",
-    budget_max_usd: 600,
-    bsl_level: "BSL1",
-    privacy: "open",
-    notes:
-      "Factors: IPTG concentration temperature induction OD and post-induction time. Response: fluorescence/OD600.",
-  },
-  {
-    experiment_type: "custom_protocol",
-    title: "CRISPR base editing efficiency quantification",
-    hypothesis_statement:
-      "ABE8e base editor achieves >30% A-to-G conversion at target site in HEK293T cells with <5% indel formation",
-    hypothesis_null:
-      "Base editing efficiency is <10% or indel frequency exceeds 20% indicating poor editor performance",
-    budget_max_usd: 800,
-    bsl_level: "BSL2",
-    privacy: "confidential",
-    notes:
-      "NGS analysis of editing outcomes. Include unedited control and Cas9 nuclease comparison. 72hr post-transfection.",
-  },
-  {
-    experiment_type: "custom_protocol",
-    title: "Directed evolution library quality assessment",
-    hypothesis_statement:
-      "Error-prone PCR library contains >10^6 unique variants with mutation rate of 2-4 mutations per gene",
-    hypothesis_null:
-      "Library diversity is insufficient (<10^5 variants) or mutation rate falls outside target range",
-    budget_max_usd: 450,
-    bsl_level: "BSL1",
-    privacy: "open",
-    notes:
-      "NGS for variant calling. Colony PCR of 20 random clones for Sanger verification. Calculate functional variant fraction.",
   },
 ];
