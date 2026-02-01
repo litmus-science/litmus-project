@@ -1,12 +1,21 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback, useMemo, Suspense, type ReactNode } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
-import { generateHypothesis, createExperiment, estimateCost } from "@/lib/api";
+import { generateHypothesis, createExperiment, estimateCost, getHypothesis, ApiError, type RateLimitInfo } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatUsd } from "@/lib/format";
-import type { EdisonJobType, EdisonTranslateResponse } from "@/lib/types";
+import type {
+  EdisonJobType,
+  EdisonTranslateResponse,
+  EdisonIntake,
+  EdisonTranslationResult,
+  HypothesisListItem,
+} from "@/lib/types";
+import { useHypothesisStore } from "@/lib/hypothesisStore";
+import { SaveHypothesisButton } from "@/components/SaveHypothesisButton";
+import { RecentHypotheses } from "@/components/RecentHypotheses";
 
 type FlowState =
   | "INITIAL"
@@ -120,8 +129,14 @@ const experimentTypeLabels: Record<string, string> = {
 };
 
 const processingSteps = ["Querying Edison...", "Analyzing results...", "Generating hypothesis..."];
+const minHypothesisLength = 10;
+const chatHistoryLimit = 20;
+const edisonResponseStorageKey = "hypothesize-edison-response";
+const edisonEditsStorageKey = "hypothesize-edison-edits";
+const edisonIntakeIdStorageKey = "hypothesize-intake-id";
 
 interface UploadedFile {
+  file: File;
   name: string;
   size: number;
   type: string;
@@ -132,13 +147,14 @@ interface ExperimentForm {
   hypothesis_statement: string;
   hypothesis_null: string;
   budget_max_usd: number;
-  bsl_level: string;
+  bsl_level: "BSL1" | "BSL2";
   privacy: string;
   notes: string;
 }
 
-export default function HypothesizePage() {
+function HypothesizePageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isAuthenticated } = useAuth();
 
   // Sidebar state
@@ -155,6 +171,8 @@ export default function HypothesizePage() {
   const [edisonResponse, setEdisonResponse] = useState<EdisonTranslateResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [rateLimitInfo, setRateLimitInfo] = useState<RateLimitInfo | null>(null);
+  const [intakeId, setIntakeId] = useState<string | null>(null);
 
   // File upload state
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -170,6 +188,8 @@ export default function HypothesizePage() {
     typical: number;
     high: number;
   } | null>(null);
+  const [estimateError, setEstimateError] = useState<string | null>(null);
+  const [estimateLoading, setEstimateLoading] = useState(false);
 
   // Protocol preview
   const [showProtocol, setShowProtocol] = useState(false);
@@ -193,6 +213,41 @@ export default function HypothesizePage() {
     }
   }, [isAuthenticated, router]);
 
+  // Handle ?continue={id} URL parameter
+  useEffect(() => {
+    const continueId = searchParams.get("continue");
+    if (!continueId) return;
+
+    const loadHypothesis = async () => {
+      try {
+        setLoading(true);
+        setError("");
+        const hypothesis = await getHypothesis(continueId);
+
+        // Reconstruct EdisonTranslateResponse if we have edison data
+        if (hypothesis.edison_response && hypothesis.intake_draft) {
+          const response = hypothesis.edison_response as unknown as EdisonTranslateResponse;
+          setEdisonResponse(response);
+          setEditedHypothesis(hypothesis.statement);
+          setEditedNullHypothesis(hypothesis.null_hypothesis || "");
+          setFlowState("HYPOTHESIS_REVIEW");
+        } else {
+          // Fallback: just load the hypothesis data
+          setEditedHypothesis(hypothesis.statement);
+          setEditedNullHypothesis(hypothesis.null_hypothesis || "");
+          setFlowState("HYPOTHESIS_REVIEW");
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load hypothesis");
+        setFlowState("INITIAL");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadHypothesis();
+  }, [searchParams]);
+
   // Load chat history from localStorage
   useEffect(() => {
     const saved = localStorage.getItem("hypothesize-history");
@@ -202,13 +257,72 @@ export default function HypothesizePage() {
     }
   }, []);
 
+  // Load saved Edison response
+  useEffect(() => {
+    const savedResponse = localStorage.getItem(edisonResponseStorageKey);
+    if (!savedResponse) return;
+    const parsed = JSON.parse(savedResponse) as EdisonTranslateResponse;
+    setEdisonResponse(parsed);
+
+    const savedEdits = localStorage.getItem(edisonEditsStorageKey);
+    if (savedEdits) {
+      const edits = JSON.parse(savedEdits) as { hypothesis: string; nullHypothesis: string };
+      setEditedHypothesis(edits.hypothesis);
+      setEditedNullHypothesis(edits.nullHypothesis);
+    } else {
+      setEditedHypothesis(parsed.intake.hypothesis.statement || "");
+      setEditedNullHypothesis(parsed.intake.hypothesis.null_hypothesis || "");
+    }
+
+    const savedIntakeId = localStorage.getItem(edisonIntakeIdStorageKey);
+    if (savedIntakeId) {
+      setIntakeId(savedIntakeId);
+    }
+
+    setFlowState("HYPOTHESIS_REVIEW");
+  }, []);
+
+  // Persist Edison response
+  useEffect(() => {
+    if (edisonResponse) {
+      localStorage.setItem(edisonResponseStorageKey, JSON.stringify(edisonResponse));
+      localStorage.setItem(
+        edisonEditsStorageKey,
+        JSON.stringify({
+          hypothesis: editedHypothesis,
+          nullHypothesis: editedNullHypothesis,
+        })
+      );
+      if (intakeId) {
+        localStorage.setItem(edisonIntakeIdStorageKey, intakeId);
+      }
+      return;
+    }
+    localStorage.removeItem(edisonResponseStorageKey);
+    localStorage.removeItem(edisonEditsStorageKey);
+    localStorage.removeItem(edisonIntakeIdStorageKey);
+  }, [edisonResponse, editedHypothesis, editedNullHypothesis, intakeId]);
+
   // Update cost estimate when we have experiment type
   useEffect(() => {
     if (edisonResponse?.experiment_type) {
+      setEstimateLoading(true);
+      setEstimateError(null);
+      setRateLimitInfo(null);
       estimateCost({ experiment_type: edisonResponse.experiment_type })
         .then((data) => setEstimate(data.estimated_cost_usd))
-        .catch(() => setEstimate(null));
+        .catch((err) => {
+          setEstimate(null);
+          setEstimateError(err instanceof Error ? err.message : "Failed to estimate cost");
+          if (err instanceof ApiError) {
+            setRateLimitInfo(err.rateLimit ?? null);
+          }
+        })
+        .finally(() => setEstimateLoading(false));
+      return;
     }
+    setEstimate(null);
+    setEstimateError(null);
   }, [edisonResponse?.experiment_type]);
 
   // Processing animation
@@ -238,6 +352,7 @@ export default function HypothesizePage() {
 
     const files = Array.from(e.dataTransfer.files);
     const newFiles: UploadedFile[] = files.map(f => ({
+      file: f,
       name: f.name,
       size: f.size,
       type: f.type,
@@ -249,6 +364,7 @@ export default function HypothesizePage() {
     if (e.target.files) {
       const files = Array.from(e.target.files);
       const newFiles: UploadedFile[] = files.map(f => ({
+        file: f,
         name: f.name,
         size: f.size,
         type: f.type,
@@ -267,6 +383,11 @@ export default function HypothesizePage() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }, []);
 
+  const clearHistory = useCallback(() => {
+    setChatHistory([]);
+    localStorage.removeItem("hypothesize-history");
+  }, []);
+
   const handleGenerate = useCallback(async () => {
     if (!query.trim()) {
       setError("Please enter a research query");
@@ -274,6 +395,7 @@ export default function HypothesizePage() {
     }
 
     setError("");
+    setRateLimitInfo(null);
     setFlowState("PROCESSING");
     setProcessingStep(0);
 
@@ -281,6 +403,7 @@ export default function HypothesizePage() {
       const result = await generateHypothesis({
         query: query,
         job_type: selectedAgent,
+        files: uploadedFiles.map((file) => file.file),
       });
 
       if (!result.success) {
@@ -300,32 +423,43 @@ export default function HypothesizePage() {
         experimentType: result.experiment_type,
       };
       setChatHistory(prev => {
-        const updatedHistory = [newSession, ...prev].slice(0, 20);
+        const updatedHistory = [newSession, ...prev].slice(0, chatHistoryLimit);
         localStorage.setItem("hypothesize-history", JSON.stringify(updatedHistory));
         return updatedHistory;
       });
 
       // Extract hypothesis from intake
-      const intake = result.intake as Record<string, unknown>;
-      const hypothesis = intake.hypothesis as { statement?: string; null_hypothesis?: string } | undefined;
-      setEditedHypothesis(hypothesis?.statement || "");
-      setEditedNullHypothesis(hypothesis?.null_hypothesis || "");
+      const intake = result.intake;
+      setEditedHypothesis(intake.hypothesis.statement || "");
+      setEditedNullHypothesis(intake.hypothesis.null_hypothesis || "");
 
       setFlowState("HYPOTHESIS_REVIEW");
     } catch (err) {
+      if (err instanceof ApiError) {
+        setRateLimitInfo(err.rateLimit ?? null);
+      }
       setError(err instanceof Error ? err.message : "Failed to generate hypothesis");
       setFlowState("INITIAL");
     }
-  }, [query, selectedAgent]);
+  }, [query, selectedAgent, uploadedFiles]);
 
   const handleProceedToExperiment = useCallback(() => {
     if (!edisonResponse) return;
 
-    const intake = edisonResponse.intake as Record<string, unknown>;
-    const title = (intake.title as string) || "";
-    const compliance = intake.compliance as { bsl?: string } | undefined;
-    const turnaround = intake.turnaround_budget as { budget_max_usd?: number } | undefined;
-    const metadata = intake.metadata as { notes?: string } | undefined;
+    const trimmedHypothesis = editedHypothesis.trim();
+    if (trimmedHypothesis.length < minHypothesisLength) {
+      setError(`Hypothesis must be at least ${minHypothesisLength} characters`);
+      return;
+    }
+
+    setError("");
+
+    const intake: EdisonIntake = edisonResponse.intake;
+    const title = intake.title || "";
+    const compliance = intake.compliance;
+    const turnaround = intake.turnaround_budget;
+    const metadata = intake.metadata;
+    setIntakeId((prev) => prev ?? crypto.randomUUID());
 
     experimentForm.reset({
       title,
@@ -333,7 +467,7 @@ export default function HypothesizePage() {
       hypothesis_null: editedNullHypothesis,
       budget_max_usd: turnaround?.budget_max_usd || 500,
       bsl_level: compliance?.bsl || "BSL1",
-      privacy: (intake.privacy as string) || "open",
+      privacy: intake.privacy || "open",
       notes: metadata?.notes || "",
     });
 
@@ -345,39 +479,56 @@ export default function HypothesizePage() {
 
     setLoading(true);
     setError("");
+    setRateLimitInfo(null);
 
     try {
+      const intake: EdisonIntake = edisonResponse.intake;
+      const idempotencyKey = intakeId ?? crypto.randomUUID();
+      if (!intakeId) {
+        setIntakeId(idempotencyKey);
+      }
+      const privacy = data.privacy === "confidential" ? "private" : data.privacy;
+      const deliverables = intake.deliverables ?? {
+        minimum_package_level: "L1_BASIC_QC",
+      };
       const payload = {
+        ...intake,
         experiment_type: edisonResponse.experiment_type,
         title: data.title,
         hypothesis: {
+          ...intake.hypothesis,
           statement: data.hypothesis_statement,
           null_hypothesis: data.hypothesis_null,
         },
         turnaround_budget: {
+          ...intake.turnaround_budget,
           budget_max_usd: data.budget_max_usd,
         },
-        deliverables: {
-          minimum_package_level: "standard",
-        },
+        deliverables,
         compliance: {
-          bsl_level: data.bsl_level,
+          ...intake.compliance,
+          bsl: data.bsl_level,
         },
-        privacy: data.privacy,
+        privacy,
         metadata: {
+          ...intake.metadata,
           notes: data.notes,
           edison_generated: true,
+          intake_id: idempotencyKey,
         },
       };
 
       const result = await createExperiment(payload);
       router.push(`/experiments/${result.experiment_id}`);
     } catch (err) {
+      if (err instanceof ApiError) {
+        setRateLimitInfo(err.rateLimit ?? null);
+      }
       setError(err instanceof Error ? err.message : "Failed to create experiment");
     } finally {
       setLoading(false);
     }
-  }, [edisonResponse, router]);
+  }, [edisonResponse, intakeId, router]);
 
   const handleStartOver = useCallback(() => {
     setFlowState("INITIAL");
@@ -385,10 +536,16 @@ export default function HypothesizePage() {
     setEditedHypothesis("");
     setEditedNullHypothesis("");
     setError("");
+    setRateLimitInfo(null);
     setEstimate(null);
+    setEstimateError(null);
     setQuery("");
     setUploadedFiles([]);
+    setIntakeId(null);
     experimentForm.reset();
+    localStorage.removeItem(edisonResponseStorageKey);
+    localStorage.removeItem(edisonEditsStorageKey);
+    localStorage.removeItem(edisonIntakeIdStorageKey);
   }, [experimentForm]);
 
   const charCount = query.length;
@@ -398,8 +555,8 @@ export default function HypothesizePage() {
   // Get confidence color based on intake - memoized
   const confidenceBadge = useMemo(() => {
     if (!edisonResponse?.intake) return null;
-    const intake = edisonResponse.intake as Record<string, unknown>;
-    const confidence = (intake.confidence as number) || 0.7;
+    const intake = edisonResponse.intake;
+    const confidence = intake.metadata?.confidence ?? 0.7;
 
     if (confidence >= 0.8) {
       return (
@@ -421,6 +578,14 @@ export default function HypothesizePage() {
       );
     }
   }, [edisonResponse?.intake]);
+
+  const rateLimitSummary = useMemo(() => {
+    if (!rateLimitInfo) return null;
+    const remaining = rateLimitInfo.remaining ?? "?";
+    const limit = rateLimitInfo.limit ?? "?";
+    const reset = rateLimitInfo.reset ? ` · Reset: ${rateLimitInfo.reset}` : "";
+    return `Rate limit: ${remaining}/${limit} remaining${reset}`;
+  }, [rateLimitInfo]);
 
   return (
     <div className="relative min-h-screen">
@@ -496,8 +661,33 @@ export default function HypothesizePage() {
           </button>
         </div>
 
-        <div className="px-4 pb-2">
+        <div className="px-4 pb-2 flex items-center justify-between">
+          <span className="font-mono text-xs uppercase tracking-wide text-surface-500">Saved Drafts</span>
+        </div>
+        <div className="px-2 pb-4">
+          <RecentHypotheses
+            onSelect={(hypothesis: HypothesisListItem) => {
+              router.push(`/hypothesize?continue=${hypothesis.id}`);
+            }}
+            onDelete={() => {
+              // Refresh will happen automatically in RecentHypotheses
+            }}
+            maxItems={5}
+          />
+        </div>
+
+        <div className="px-4 pb-2 flex items-center justify-between border-t border-surface-200 pt-4">
           <span className="font-mono text-xs uppercase tracking-wide text-surface-500">History</span>
+          {chatHistory.length > 0 && (
+            <button
+              type="button"
+              onClick={clearHistory}
+              className="text-xs font-mono uppercase tracking-wide text-surface-400 hover:text-surface-600 transition-colors"
+              tabIndex={overlayTabIndex}
+            >
+              Clear
+            </button>
+          )}
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-4">
           {chatHistory.length === 0 ? (
@@ -579,6 +769,9 @@ export default function HypothesizePage() {
                         ×
                       </button>
                     </div>
+                    {rateLimitSummary && (
+                      <p className="mt-2 text-xs font-mono text-surface-500">{rateLimitSummary}</p>
+                    )}
                   </div>
                 )}
 
@@ -770,6 +963,9 @@ export default function HypothesizePage() {
                 {error && (
                   <div className="alert-error mb-6">
                     {error}
+                    {rateLimitSummary && (
+                      <p className="mt-2 text-xs font-mono text-surface-500">{rateLimitSummary}</p>
+                    )}
                   </div>
                 )}
 
@@ -836,22 +1032,42 @@ export default function HypothesizePage() {
                   )}
                 </div>
 
-                <div className="flex gap-4 pt-6 mt-6 border-t border-surface-200">
-                  <button
-                    type="button"
-                    onClick={handleStartOver}
-                    className="flex-1 btn-secondary"
-                  >
-                    Start Over
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleProceedToExperiment}
-                    className="flex-1 btn-primary"
-                    disabled={!editedHypothesis.trim()}
-                  >
-                    Proceed to Experiment
-                  </button>
+                <div className="flex flex-col gap-4 pt-6 mt-6 border-t border-surface-200">
+                  <div className="flex gap-4">
+                    <button
+                      type="button"
+                      onClick={handleStartOver}
+                      className="flex-1 btn-secondary"
+                    >
+                      Start Over
+                    </button>
+                    <SaveHypothesisButton
+                      hypothesis={{
+                        title: edisonResponse.intake?.title || "Untitled Hypothesis",
+                        statement: editedHypothesis,
+                        nullHypothesis: editedNullHypothesis,
+                        experimentType: edisonResponse.experiment_type,
+                      }}
+                      edisonContext={{
+                        agent: selectedAgent,
+                        query: query,
+                        response: edisonResponse as unknown as Record<string, unknown>,
+                        intakeDraft: edisonResponse.intake as unknown as Record<string, unknown>,
+                      }}
+                      onSaved={(id) => {
+                        console.log("Hypothesis saved with ID:", id);
+                      }}
+                      className="flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleProceedToExperiment}
+                      className="flex-1 btn-primary"
+                      disabled={editedHypothesis.trim().length < minHypothesisLength}
+                    >
+                      Proceed to Experiment
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -873,6 +1089,16 @@ export default function HypothesizePage() {
                 {error && (
                   <div className="alert-error">
                     {error}
+                    {rateLimitSummary && (
+                      <p className="mt-2 text-xs font-mono text-surface-500">{rateLimitSummary}</p>
+                    )}
+                  </div>
+                )}
+
+                {estimateLoading && (
+                  <div className="bg-surface-50 border border-surface-200 px-4 py-3 flex items-center gap-3">
+                    <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-accent"></div>
+                    <p className="text-sm text-surface-600">Estimating cost...</p>
                   </div>
                 )}
 
@@ -887,6 +1113,15 @@ export default function HypothesizePage() {
                         (typical: {formatUsd(estimate.typical)})
                       </span>
                     </p>
+                  </div>
+                )}
+
+                {estimateError && (
+                  <div className="alert-error">
+                    {estimateError}
+                    {rateLimitSummary && (
+                      <p className="mt-2 text-xs font-mono text-surface-500">{rateLimitSummary}</p>
+                    )}
                   </div>
                 )}
 
@@ -909,7 +1144,13 @@ export default function HypothesizePage() {
                     Hypothesis Statement <span className="text-accent">*</span>
                   </label>
                   <textarea
-                    {...experimentForm.register("hypothesis_statement", { required: "Hypothesis is required" })}
+                    {...experimentForm.register("hypothesis_statement", {
+                      required: "Hypothesis is required",
+                      minLength: {
+                        value: minHypothesisLength,
+                        message: `Hypothesis must be at least ${minHypothesisLength} characters`,
+                      },
+                    })}
                     rows={3}
                     className="input"
                   />
@@ -999,8 +1240,8 @@ export default function HypothesizePage() {
 
                     {showProtocol && (
                       <div className="mt-4 space-y-3">
-                        {Object.entries(edisonResponse.translations).map(([provider, result]) => {
-                          const translation = result as { format?: string; protocol_readable?: string; success?: boolean };
+                      {Object.entries(edisonResponse.translations).map(([provider, result]) => {
+                          const translation: EdisonTranslationResult = result;
                           return (
                             <div key={provider} className="border border-surface-200 overflow-hidden">
                               <div className="bg-surface-100 px-4 py-2 flex items-center justify-between">
@@ -1048,5 +1289,19 @@ export default function HypothesizePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function HypothesizePage() {
+  return (
+    <Suspense fallback={
+      <div className="relative min-h-screen">
+        <div className="ml-20 min-h-screen overflow-y-auto flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent"></div>
+        </div>
+      </div>
+    }>
+      <HypothesizePageContent />
+    </Suspense>
   );
 }

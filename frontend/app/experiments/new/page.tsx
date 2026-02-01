@@ -1,18 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import {
   createExperiment,
   listTemplates,
   estimateCost,
   translateToCloudLab,
+  getHypothesis,
   type TranslateResponse,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { TemplateListItem } from "@/lib/types";
+import type { TemplateListItem, HypothesisListItem, HypothesisResponse } from "@/lib/types";
 import { formatUsd } from "@/lib/format";
+import { HypothesisPicker } from "@/components/HypothesisPicker";
 
 const experimentTypes = [
   { value: "sanger", label: "Sanger Sequencing" },
@@ -48,8 +50,21 @@ const experimentTypeMap: Record<string, string> = {
   custom_protocol: "CUSTOM",
 };
 
-export default function NewExperimentPage() {
+// Reverse map from backend types to form types
+const backendToFormTypeMap: Record<string, string> = {
+  SANGER_PLASMID_VERIFICATION: "sanger",
+  QPCR_EXPRESSION: "qpcr",
+  CELL_VIABILITY_IC50: "cell_viability",
+  ENZYME_INHIBITION_IC50: "enzyme_inhibition",
+  MICROBIAL_GROWTH_MATRIX: "microbial_growth",
+  MIC_MBC_ASSAY: "mic_mbc",
+  ZONE_OF_INHIBITION: "zone_of_inhibition",
+  CUSTOM: "custom_protocol",
+};
+
+function NewExperimentPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isAuthenticated } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -59,6 +74,10 @@ export default function NewExperimentPage() {
     typical: number;
     high: number;
   } | null>(null);
+
+  // Hypothesis picker state
+  const [showPicker, setShowPicker] = useState(false);
+  const [selectedHypothesis, setSelectedHypothesis] = useState<HypothesisResponse | null>(null);
 
   // AI-assisted translation state
   const [useAI, setUseAI] = useState(false);
@@ -70,6 +89,8 @@ export default function NewExperimentPage() {
     register,
     handleSubmit,
     watch,
+    setValue,
+    reset,
     formState: { errors },
   } = useForm<ExperimentForm>({
     defaultValues: {
@@ -81,6 +102,7 @@ export default function NewExperimentPage() {
 
   const experimentType = watch("experiment_type");
 
+  // Handle URL param ?hypothesisId={id}
   useEffect(() => {
     if (!isAuthenticated()) {
       router.push("/login");
@@ -88,7 +110,20 @@ export default function NewExperimentPage() {
     }
 
     listTemplates().then((data) => setTemplates(data.templates)).catch(console.error);
-  }, [isAuthenticated, router]);
+
+    const hypothesisId = searchParams.get("hypothesisId");
+    if (hypothesisId) {
+      getHypothesis(hypothesisId)
+        .then((hypothesis) => {
+          prefillFromHypothesis(hypothesis);
+          setSelectedHypothesis(hypothesis);
+        })
+        .catch((err) => {
+          console.error("Failed to load hypothesis:", err);
+          setError("Failed to load hypothesis from URL");
+        });
+    }
+  }, [isAuthenticated, router, searchParams]);
 
   useEffect(() => {
     if (experimentType) {
@@ -104,6 +139,52 @@ export default function NewExperimentPage() {
       setTranslation(null);
     }
   }, [useAI]);
+
+  // Pre-fill form from hypothesis
+  const prefillFromHypothesis = (hypothesis: HypothesisResponse) => {
+    const formType = hypothesis.experiment_type
+      ? backendToFormTypeMap[hypothesis.experiment_type]
+      : undefined;
+
+    reset({
+      experiment_type: formType || "",
+      title: hypothesis.title,
+      hypothesis_statement: hypothesis.statement,
+      hypothesis_null: hypothesis.null_hypothesis || "",
+      bsl_level: "BSL1",
+      privacy: "open",
+      budget_max_usd: 500,
+      notes: "",
+    });
+  };
+
+  // Handle hypothesis selection from picker
+  const handleHypothesisSelect = async (item: HypothesisListItem) => {
+    try {
+      const hypothesis = await getHypothesis(item.id);
+      prefillFromHypothesis(hypothesis);
+      setSelectedHypothesis(hypothesis);
+      setShowPicker(false);
+    } catch (err) {
+      console.error("Failed to load hypothesis:", err);
+      setError("Failed to load hypothesis details");
+    }
+  };
+
+  // Clear hypothesis pre-fill
+  const handleClearHypothesis = () => {
+    setSelectedHypothesis(null);
+    reset({
+      experiment_type: "",
+      title: "",
+      hypothesis_statement: "",
+      hypothesis_null: "",
+      bsl_level: "BSL1",
+      privacy: "open",
+      budget_max_usd: 500,
+      notes: "",
+    });
+  };
 
   // Generate AI-assisted protocol preview
   const generatePreview = async () => {
@@ -199,6 +280,49 @@ export default function NewExperimentPage() {
           {error && (
             <div className="alert-error">
               {error}
+            </div>
+          )}
+
+          {/* Hypothesis Pre-fill Section */}
+          {selectedHypothesis ? (
+            <div className="bg-accent-50 border-l-2 border-accent px-4 py-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-surface-800 mb-1">
+                    Pre-filled from hypothesis
+                  </p>
+                  <p className="text-sm text-surface-600">
+                    {selectedHypothesis.title}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleClearHypothesis}
+                  className="text-sm text-accent hover:text-accent-dim font-medium transition-colors flex-shrink-0"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="border border-surface-200 bg-surface-50 px-4 py-3">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-surface-800 mb-1">
+                    Start from a saved hypothesis
+                  </p>
+                  <p className="text-xs text-surface-500">
+                    Pre-fill this form with data from a previously saved hypothesis
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPicker(true)}
+                  className="btn-secondary text-sm flex-shrink-0"
+                >
+                  Use from Hypothesize
+                </button>
+              </div>
             </div>
           )}
 
@@ -440,6 +564,27 @@ export default function NewExperimentPage() {
           </div>
         </form>
       </div>
+
+      {/* Hypothesis Picker Modal */}
+      <HypothesisPicker
+        isOpen={showPicker}
+        onClose={() => setShowPicker(false)}
+        onSelect={handleHypothesisSelect}
+      />
     </div>
+  );
+}
+
+export default function NewExperimentPage() {
+  return (
+    <Suspense fallback={
+      <div className="max-w-3xl mx-auto px-6 lg:px-8 py-12">
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent"></div>
+        </div>
+      </div>
+    }>
+      <NewExperimentPageContent />
+    </Suspense>
   );
 }
