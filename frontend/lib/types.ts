@@ -172,12 +172,158 @@ export interface SubmitResultsResponse {
 // Edison types
 export type EdisonJobType = "literature" | "molecules" | "analysis" | "precedent";
 
+export interface EdisonPriorWork {
+  type: "doi" | "pmid" | "url" | "litmus_experiment";
+  identifier: string;
+  relevance?: string;
+}
+
+export interface EdisonHypothesis {
+  statement: string;
+  null_hypothesis?: string;
+  why_interesting?: string;
+  prior_work?: EdisonPriorWork[];
+}
+
+export interface EdisonCompliance {
+  bsl: "BSL1" | "BSL2";
+  human_derived_material?: boolean;
+  animal_derived_material?: boolean;
+  hazardous_chemicals?: boolean;
+  sds_attached?: boolean;
+  export_control_or_sanctions_risk?: boolean;
+}
+
+export interface EdisonTurnaroundBudget {
+  budget_max_usd: number;
+  desired_turnaround_days?: number;
+  hard_deadline?: string;
+  priority?: "standard" | "expedited" | "urgent";
+  budget_flexibility?: "strict" | "flexible_10" | "flexible_25";
+}
+
+export interface EdisonDeliverables {
+  minimum_package_level: "L0_RAW_ONLY" | "L1_BASIC_QC" | "L2_INTERPRETATION";
+  raw_data_formats?: string[];
+  required_processed_outputs?: string[];
+  photo_documentation?: string;
+  lab_notebook_scan?: boolean;
+}
+
+export interface EdisonMetadata {
+  notes?: string;
+  confidence?: number;
+  tags?: string[];
+  submitter_type?: "human" | "ai_agent" | "automated_pipeline";
+  agent_identifier?: string;
+  [key: string]: unknown;
+}
+
+export interface EdisonIntake {
+  experiment_type: string;
+  title: string;
+  hypothesis: EdisonHypothesis;
+  compliance: EdisonCompliance;
+  turnaround_budget?: EdisonTurnaroundBudget;
+  deliverables?: EdisonDeliverables;
+  privacy?: "open" | "delayed_6mo" | "delayed_12mo" | "private";
+  metadata?: EdisonMetadata;
+  replicates?: {
+    technical?: number;
+    biological?: number;
+  };
+  materials_provided?: Array<Record<string, unknown>>;
+  sanger?: Record<string, unknown>;
+  qpcr?: Record<string, unknown>;
+  cell_viability?: Record<string, unknown>;
+  enzyme_inhibition?: Record<string, unknown>;
+  microbial_growth?: Record<string, unknown>;
+  mic_mbc?: Record<string, unknown>;
+  zone_of_inhibition?: Record<string, unknown>;
+  custom_protocol?: Record<string, unknown>;
+}
+
+export interface EdisonTranslationResult {
+  provider?: string;
+  format?: string;
+  protocol_readable?: string;
+  success?: boolean;
+  errors?: Array<{ message: string }>;
+  warnings?: Array<{ message: string }>;
+}
+
 export interface EdisonTranslateResponse {
   success: boolean;
   experiment_type: string;
-  intake: Record<string, unknown>;
-  translations?: Record<string, unknown>;
+  intake: EdisonIntake;
+  translations?: Record<string, EdisonTranslationResult>;
   suggestions: string[];
   warnings: string[];
   error?: string;
+}
+
+// Hypothesis types
+export interface HypothesisCreate {
+  title: string;
+  statement: string;
+  null_hypothesis?: string;
+  experiment_type: string;
+  edison_agent?: string;
+  edison_query?: string;
+  edison_response?: Record<string, unknown>;
+  intake_draft?: Record<string, unknown>;
+}
+
+export interface HypothesisUpdate {
+  title?: string;
+  statement?: string;
+  null_hypothesis?: string;
+  experiment_type?: string;
+  intake_draft?: Record<string, unknown>;
+}
+
+export interface HypothesisResponse {
+  id: string;
+  user_id: string;
+  title: string;
+  statement: string;
+  null_hypothesis?: string;
+  experiment_type?: string;
+  status: string;
+  edison_agent?: string;
+  edison_query?: string;
+  edison_response?: Record<string, unknown>;
+  intake_draft?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  experiments_count: number;
+}
+
+export interface HypothesisListItem {
+  id: string;
+  title: string;
+  statement: string;
+  experiment_type?: string;
+  status: string;
+  created_at: string;
+}
+
+export interface HypothesisListResponse {
+  hypotheses: HypothesisListItem[];
+  pagination: { total: number; cursor?: string; has_more: boolean };
+}
+
+export interface HypothesisToExperimentRequest {
+  budget_max_usd: number;
+  bsl_level?: string;
+  privacy?: string;
+  title_override?: string;
+}
+
+export interface ExperimentCreatedResponse {
+  experiment_id: string;
+  status: string;
+  created_at: string;
+  estimated_cost_usd?: number;
+  estimated_turnaround_days?: number;
 }

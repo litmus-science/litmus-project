@@ -12,7 +12,19 @@ import type {
   SubmitResultsResponse,
   EdisonJobType,
   EdisonTranslateResponse,
+  HypothesisCreate,
+  HypothesisUpdate,
+  HypothesisResponse,
+  HypothesisListResponse,
+  HypothesisToExperimentRequest,
+  ExperimentCreatedResponse,
 } from "./types";
+
+export type RateLimitInfo = {
+  limit?: string;
+  remaining?: string;
+  reset?: string;
+};
 
 export type ValidationIssue = {
   path: string;
@@ -41,8 +53,12 @@ export type TranslateResponse = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-class ApiError extends Error {
-  constructor(public status: number, message: string) {
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+    public rateLimit?: RateLimitInfo
+  ) {
     super(message);
     this.name = "ApiError";
   }
@@ -53,10 +69,13 @@ async function request<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const token = getToken();
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-    ...options.headers,
-  };
+  const isFormData = options.body instanceof FormData;
+  const headers: HeadersInit = isFormData
+    ? { ...options.headers }
+    : {
+        "Content-Type": "application/json",
+        ...options.headers,
+      };
 
   if (token) {
     (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
@@ -67,9 +86,37 @@ async function request<T>(
     headers,
   });
 
+  const rateLimit: RateLimitInfo = {
+    limit: response.headers.get("X-RateLimit-Limit") ?? undefined,
+    remaining: response.headers.get("X-RateLimit-Remaining") ?? undefined,
+    reset: response.headers.get("X-RateLimit-Reset") ?? undefined,
+  };
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: "Request failed" }));
-    throw new ApiError(response.status, error.detail || error.message || "Request failed");
+    const errorPayload = error as { detail?: unknown; message?: string; error?: unknown };
+    const detail = errorPayload.detail;
+    const detailMessage =
+      typeof detail === "object" &&
+      detail !== null &&
+      "message" in detail &&
+      typeof (detail as { message?: unknown }).message === "string"
+        ? (detail as { message: string }).message
+        : undefined;
+    const nestedError = errorPayload.error;
+    const nestedMessage =
+      typeof nestedError === "object" &&
+      nestedError !== null &&
+      "message" in nestedError &&
+      typeof (nestedError as { message?: unknown }).message === "string"
+        ? (nestedError as { message: string }).message
+        : undefined;
+    const message =
+      (typeof detail === "string" ? detail : detailMessage) ??
+      nestedMessage ??
+      errorPayload.message ??
+      "Request failed";
+    throw new ApiError(response.status, message, rateLimit);
   }
 
   return response.json();
@@ -299,8 +346,79 @@ export async function generateHypothesis(data: {
   query: string;
   job_type: EdisonJobType;
   context?: string;
+  files?: File[];
 }): Promise<EdisonTranslateResponse> {
+  if (data.files && data.files.length > 0) {
+    const formData = new FormData();
+    formData.append("query", data.query);
+    formData.append("job_type", data.job_type);
+    if (data.context) {
+      formData.append("context", data.context);
+    }
+    for (const file of data.files) {
+      formData.append("files", file);
+    }
+    return request<EdisonTranslateResponse>("/cloud-labs/edison", {
+      method: "POST",
+      body: formData,
+    });
+  }
   return request<EdisonTranslateResponse>("/cloud-labs/edison", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// Hypotheses
+export async function createHypothesis(
+  data: HypothesisCreate
+): Promise<HypothesisResponse> {
+  return request<HypothesisResponse>("/hypotheses", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function listHypotheses(params?: {
+  status?: string;
+  experiment_type?: string;
+  limit?: number;
+  cursor?: string;
+}): Promise<HypothesisListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.experiment_type) searchParams.set("experiment_type", params.experiment_type);
+  if (params?.limit) searchParams.set("limit", params.limit.toString());
+  if (params?.cursor) searchParams.set("cursor", params.cursor);
+  const query = searchParams.toString();
+  return request<HypothesisListResponse>(`/hypotheses${query ? `?${query}` : ""}`);
+}
+
+export async function getHypothesis(id: string): Promise<HypothesisResponse> {
+  return request<HypothesisResponse>(`/hypotheses/${id}`);
+}
+
+export async function updateHypothesis(
+  id: string,
+  data: HypothesisUpdate
+): Promise<HypothesisResponse> {
+  return request<HypothesisResponse>(`/hypotheses/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteHypothesis(id: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/hypotheses/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function hypothesisToExperiment(
+  id: string,
+  data: HypothesisToExperimentRequest
+): Promise<ExperimentCreatedResponse> {
+  return request<ExperimentCreatedResponse>(`/hypotheses/${id}/to-experiment`, {
     method: "POST",
     body: JSON.stringify(data),
   });
