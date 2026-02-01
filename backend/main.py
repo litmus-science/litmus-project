@@ -14,6 +14,12 @@ from typing import Optional, List
 from contextlib import asynccontextmanager
 from collections import defaultdict
 
+# Load environment variables from .env file at project root
+# This allows sharing .env between frontend and backend
+from dotenv import load_dotenv
+PROJECT_ROOT = Path(__file__).parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
+
 from fastapi import FastAPI, HTTPException, Depends, Query, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -22,7 +28,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 
 # Add project root to path for imports
-PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.models import (
@@ -1496,6 +1501,15 @@ async def translate_to_cloud_lab(
         )
         if interpretation.success:
             intake = interpretation.enriched_intake
+        else:
+            # Return error when LLM interpretation fails
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "llm_interpretation_failed",
+                    "message": interpretation.error or "LLM interpretation failed",
+                }
+            )
 
     try:
         results = do_translate_intake(intake, provider)
