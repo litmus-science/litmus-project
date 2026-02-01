@@ -542,24 +542,19 @@ export default function HypothesizePage() {
       <div className="ml-20 min-h-screen overflow-y-auto">
         <div className="max-w-5xl mx-auto px-6 lg:px-8 py-12">
           {/* Header */}
-          <div className="mb-10 space-y-6">
+          <div className="mb-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 bg-surface-900 flex items-center justify-center">
-                  <span className="text-accent font-display text-lg">L</span>
-                </div>
-                <div>
-                  <h1 className="text-2xl font-display text-surface-900">Hypothesize</h1>
-                  <span className="mt-1 inline-flex items-center px-2 py-0.5 text-xs font-medium bg-accent-50 text-accent-700 border border-accent-100">
-                    An AI scientist for complex questions.
-                  </span>
-                </div>
+              <div>
+                <h1 className="text-2xl font-display text-surface-900">Hypothesize</h1>
+                <p className="text-sm text-surface-500 mt-1">
+                  An AI scientist for complex questions.
+                </p>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="text-xs font-mono uppercase tracking-wide text-surface-500">
-                  Remaining Credits: —
-                </div>
-                <button type="button" className="btn-secondary text-xs px-3 py-2">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-mono uppercase tracking-wide text-surface-400">
+                  Credits: <span className="text-surface-700">∞</span>
+                </span>
+                <button type="button" className="btn-primary text-xs px-4 py-2">
                   Get more
                 </button>
               </div>
@@ -668,17 +663,17 @@ export default function HypothesizePage() {
                   </div>
 
                   {/* Cost + Start */}
-                  <div className="border border-surface-200 bg-surface-50 rounded-lg p-4 flex items-center justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wide text-surface-500">
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="border border-surface-200 bg-surface-50 rounded-lg p-4 flex items-center justify-between gap-4 min-h-[88px]">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 text-xs font-mono font-medium uppercase tracking-wide text-surface-500">
+                        <svg className="h-4 w-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-2.5 0-4.5-1-4.5-2.5S9.5 3 12 3s4.5 1 4.5 2.5S14.5 8 12 8zm-4.5 2.5C7.5 12 9.5 13 12 13s4.5-1 4.5-2.5m-9 5C7.5 17 9.5 18 12 18s4.5-1 4.5-2.5" />
                         </svg>
-                        Cost
+                        <span>Cost</span>
                       </div>
-                      <p className="text-xs text-surface-500 mt-1">
-                        Agent:{" "}
-                        <span className="text-surface-700 font-medium">
+                      <p className="text-xs text-surface-500 mt-1.5 leading-tight">
+                        <span className="font-mono">Agent:</span>{" "}
+                        <span className="text-surface-800 font-medium">
                           {selectedAgentCard?.label || "Agent"}
                         </span>
                       </p>
@@ -687,9 +682,9 @@ export default function HypothesizePage() {
                       type="button"
                       onClick={handleGenerate}
                       disabled={!query.trim()}
-                      className="btn-primary px-4 py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      className="btn-primary px-5 py-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0 whitespace-nowrap"
                     >
-                      Start
+                      <span>Start</span>
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
                       </svg>
@@ -719,7 +714,7 @@ export default function HypothesizePage() {
 
               {/* Agent Cards */}
               <div>
-                <p className="text-sm font-mono uppercase tracking-wide text-surface-500 mb-4">
+                <p className="text-xs font-mono font-medium uppercase tracking-wide text-surface-500 mb-4">
                   Other Edison Agents
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -729,15 +724,15 @@ export default function HypothesizePage() {
                       type="button"
                       onClick={() => setSelectedAgent(agent.value)}
                       aria-pressed={selectedAgent === agent.value}
-                      className={`p-4 text-left transition-colors duration-100 border rounded-xl ${
+                      className={`p-4 text-left transition-colors duration-100 border rounded-xl min-h-[120px] flex flex-col ${
                         selectedAgent === agent.value
                           ? "border-accent bg-white shadow-sm"
                           : "border-surface-200 bg-surface-100 hover:border-surface-300 hover:shadow-sm"
                       }`}
                     >
-                      <div className="mb-3">{agent.icon}</div>
-                      <div className="font-medium text-surface-900 mb-1">{agent.label}</div>
-                      <div className="text-sm text-surface-500 leading-relaxed">{agent.description}</div>
+                      <div className="mb-3 flex-shrink-0">{agent.icon}</div>
+                      <div className="text-sm font-medium text-surface-900 mb-1">{agent.label}</div>
+                      <div className="text-xs text-surface-500 leading-relaxed">{agent.description}</div>
                     </button>
                   ))}
                 </div>
