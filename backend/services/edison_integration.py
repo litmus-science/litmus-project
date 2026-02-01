@@ -301,6 +301,7 @@ class EdisonLitmusIntegration:
                 "source": "edison_integration",
                 "original_query": original_query,
                 "suggested_protocol": hypothesis_result.get("suggested_protocol"),
+                "confidence": hypothesis_result.get("confidence"),
             },
         }
 

@@ -3,9 +3,12 @@ Pydantic schemas for API request/response models.
 """
 
 from datetime import datetime, date
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel, Field, EmailStr
 from enum import Enum
+
+JsonPrimitive = Union[str, int, float, bool, None]
+JsonValue = Union[JsonPrimitive, List["JsonValue"], Dict[str, "JsonValue"]]
 
 
 # Enums
@@ -457,3 +460,67 @@ class SafetyRejectionDetail(BaseModel):
 
 class SafetyRejectionResponse(BaseModel):
     error: SafetyRejectionDetail
+
+
+# Hypothesis schemas
+class HypothesisCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+    statement: str = Field(..., min_length=1, max_length=2000)
+    null_hypothesis: Optional[str] = Field(None, max_length=2000)
+    experiment_type: str
+    edison_agent: Optional[str] = None
+    edison_query: Optional[str] = None
+    edison_response: Optional[Dict[str, JsonValue]] = None
+    intake_draft: Optional[Dict[str, JsonValue]] = None
+
+
+class HypothesisUpdate(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=500)
+    statement: Optional[str] = Field(None, min_length=1, max_length=2000)
+    null_hypothesis: Optional[str] = Field(None, max_length=2000)
+    experiment_type: Optional[str] = None
+    edison_agent: Optional[str] = None
+    edison_query: Optional[str] = None
+    edison_response: Optional[Dict[str, JsonValue]] = None
+    intake_draft: Optional[Dict[str, JsonValue]] = None
+
+
+class HypothesisResponse(BaseModel):
+    id: str
+    user_id: str
+    title: str
+    statement: str
+    null_hypothesis: Optional[str]
+    experiment_type: str
+    edison_agent: Optional[str]
+    edison_query: Optional[str]
+    edison_response: Optional[Dict[str, JsonValue]]
+    intake_draft: Optional[Dict[str, JsonValue]]
+    experiments_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class HypothesisListItem(BaseModel):
+    id: str
+    title: str
+    statement: str
+    experiment_type: str
+    status: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class HypothesisListResponse(BaseModel):
+    hypotheses: List[HypothesisListItem]
+    pagination: Pagination
+
+
+class HypothesisToExperimentRequest(BaseModel):
+    budget_max_usd: Optional[float] = Field(None, gt=0)
+    bsl_level: Optional[BSLLevel] = None
+    privacy: Optional[str] = Field(None, pattern="^(open|private)$")
+    title_override: Optional[str] = Field(None, min_length=1, max_length=500)

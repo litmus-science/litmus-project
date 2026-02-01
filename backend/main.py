@@ -14,7 +14,9 @@ from typing import Optional, List
 from contextlib import asynccontextmanager
 from collections import defaultdict
 
-from fastapi import FastAPI, HTTPException, Depends, Query, status, Request
+from fastapi import FastAPI, HTTPException, Depends, Query, status, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import select, and_, func, or_
@@ -28,13 +30,15 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from backend.models import (
     init_db, get_db, Experiment as ExperimentModel, ExperimentResult,
     Template as TemplateModel, User, OperatorProfile, Dispute, FileUpload,
+    Hypothesis as HypothesisModel, HypothesisStatus as DBHypothesisStatus,
     ExperimentStatus as DBExperimentStatus, PaymentStatus as DBPaymentStatus,
     ConfidenceLevel as DBConfidenceLevel, DisputeReason as DBDisputeReason,
     generate_uuid
 )
 from backend.auth import (
     get_current_user, get_current_operator, AuthUser,
-    get_password_hash, create_access_token, authenticate_user, hash_api_key
+    get_password_hash, create_access_token, authenticate_user, hash_api_key,
+    get_user_by_id
 )
 from backend import schemas
 
@@ -221,6 +225,14 @@ def validate_intake(intake: dict) -> schemas.ValidationResult:
             code="safety_violation",
             message=f"BSL level {bsl} is not supported",
             suggestion="Only BSL1 and BSL2 experiments are allowed"
+        ))
+
+    if bsl == "BSL2" and compliance.get("human_derived_material"):
+        warnings.append(schemas.ValidationError(
+            path="compliance.human_derived_material",
+            code="human_material_bsl2_review",
+            message="Human-derived materials at BSL2 require biosafety review documentation",
+            suggestion="Confirm IRB/biosafety approvals before submission"
         ))
 
     # Check for controlled substances in materials_provided
@@ -526,6 +538,27 @@ async def login(
     return schemas.Token(access_token=access_token)
 
 
+@app.get("/auth/me", response_model=schemas.UserResponse, tags=["Auth"])
+async def get_current_user_info(
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get current authenticated user info."""
+    user = await get_user_by_id(db, current_user.id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return schemas.UserResponse(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        organization=user.organization,
+        role=user.role,
+        rate_limit_tier=user.rate_limit_tier,
+        created_at=user.created_at,
+        api_key=None  # Don't expose API key in response
+    )
+
+
 # =============================================================================
 # Experiments Endpoints
 # =============================================================================
@@ -556,11 +589,15 @@ async def create_experiment(
                     "flags": validation.safety_flags
                 }
             )
+        primary_error = validation.errors[0] if validation.errors else None
+        message = "Experiment validation failed"
+        if primary_error:
+            message = f"{message}: {primary_error.path} {primary_error.message}"
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "code": "validation_failed",
-                "message": "Experiment validation failed",
+                "message": message,
                 "validation_errors": [e.model_dump() for e in validation.errors]
             }
         )
@@ -581,10 +618,6 @@ async def create_experiment(
     db.add(experiment)
     await db.commit()
     await db.refresh(experiment)
-
-    # Auto-approve simple experiments (skip review for now)
-    experiment.status = DBExperimentStatus.OPEN
-    await db.commit()
 
     return schemas.ExperimentCreatedResponse(
         experiment_id=experiment.id,
@@ -1413,7 +1446,7 @@ async def interpret_experiment(
 
 @app.post("/cloud-labs/edison", response_model=EdisonTranslateResponse, tags=["Cloud Labs"])
 async def translate_edison_query(
-    request: EdisonTranslateRequest,
+    request: Request,
     current_user: AuthUser = Depends(get_current_user)
 ):
     """
@@ -1435,14 +1468,53 @@ async def translate_edison_query(
     """
     integration = get_edison_litmus_integration()
 
+    content_type = request.headers.get("content-type", "")
+    files: List[UploadFile] = []
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        request_data = {
+            "query": form.get("query"),
+            "job_type": form.get("job_type"),
+            "context": form.get("context"),
+            "provider": form.get("provider"),
+        }
+        files = [item for item in form.getlist("files") if isinstance(item, UploadFile)]
+    else:
+        request_data = await request.json()
+
+    try:
+        edison_request = EdisonTranslateRequest(**request_data)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
+
+    additional_context = edison_request.context
+    if files:
+        file_snippets = []
+        for upload in files:
+            filename = upload.filename or "upload"
+            content_type = upload.content_type or "application/octet-stream"
+            if content_type.startswith("text/") or filename.lower().endswith((".txt", ".md", ".csv", ".tsv", ".json")):
+                content = await upload.read(50000)
+                text = content.decode("utf-8", errors="replace").strip()
+                if text:
+                    file_snippets.append(f"File: {filename}\n{text}")
+                else:
+                    file_snippets.append(f"File: {filename} (empty text file)")
+            else:
+                file_snippets.append(f"File: {filename} (content type: {content_type})")
+
+        if file_snippets:
+            file_context = "\n\n".join(file_snippets)
+            additional_context = f"{additional_context}\n\n{file_context}" if additional_context else file_context
+
     # Map the request job type to the client's enum
-    job_type = _EDISON_JOB_TYPE_MAP.get(request.job_type.value, EdisonJobTypeClient.MOLECULES)
+    job_type = _EDISON_JOB_TYPE_MAP.get(edison_request.job_type.value, EdisonJobTypeClient.MOLECULES)
 
     # Run the full pipeline: Edison → Hypothesis → Litmus → Cloud Labs
     result = await integration.research_and_translate(
-        query=request.query,
+        query=edison_request.query,
         job_type=job_type,
-        additional_context=request.context,
+        additional_context=additional_context,
         translate_to_cloud_labs=True,
     )
 
@@ -1742,6 +1814,372 @@ async def get_cloud_lab_submission(
         response["translated_protocol"] = submission.translated_protocol
 
     return response
+
+
+# =============================================================================
+# Hypotheses Endpoints
+# =============================================================================
+
+@app.post(
+    "/hypotheses",
+    response_model=schemas.HypothesisResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Hypotheses"]
+)
+async def create_hypothesis(
+    request: schemas.HypothesisCreate,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a new hypothesis."""
+    hypothesis = HypothesisModel(
+        user_id=current_user.id,
+        title=request.title,
+        statement=request.statement,
+        null_hypothesis=request.null_hypothesis,
+        experiment_type=request.experiment_type,
+        edison_agent=request.edison_agent,
+        edison_query=request.edison_query,
+        edison_response=request.edison_response,
+        intake_draft=request.intake_draft,
+        status=DBHypothesisStatus.DRAFT
+    )
+    db.add(hypothesis)
+    await db.commit()
+    await db.refresh(hypothesis)
+
+    # Count experiments linked to this hypothesis
+    exp_count_result = await db.execute(
+        select(func.count()).select_from(ExperimentModel).where(
+            ExperimentModel.hypothesis_id == hypothesis.id
+        )
+    )
+    experiments_count = exp_count_result.scalar_one()
+
+    return schemas.HypothesisResponse(
+        id=hypothesis.id,
+        user_id=hypothesis.user_id,
+        title=hypothesis.title,
+        statement=hypothesis.statement,
+        null_hypothesis=hypothesis.null_hypothesis,
+        experiment_type=hypothesis.experiment_type,
+        edison_agent=hypothesis.edison_agent,
+        edison_query=hypothesis.edison_query,
+        edison_response=hypothesis.edison_response,
+        intake_draft=hypothesis.intake_draft,
+        experiments_count=experiments_count,
+        created_at=hypothesis.created_at,
+        updated_at=hypothesis.updated_at
+    )
+
+
+@app.get("/hypotheses", response_model=schemas.HypothesisListResponse, tags=["Hypotheses"])
+async def list_hypotheses(
+    status: Optional[str] = None,
+    experiment_type: Optional[str] = None,
+    limit: int = Query(20, ge=1, le=100),
+    cursor: Optional[str] = None,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """List hypotheses for the authenticated user."""
+    filters = [HypothesisModel.user_id == current_user.id]
+
+    if status:
+        filters.append(HypothesisModel.status == DBHypothesisStatus(status))
+    else:
+        filters.append(HypothesisModel.status != DBHypothesisStatus.ARCHIVED)
+    if experiment_type:
+        filters.append(HypothesisModel.experiment_type == experiment_type)
+
+    query = select(HypothesisModel).where(*filters)
+
+    if cursor:
+        cursor_row = await db.execute(
+            select(HypothesisModel).where(HypothesisModel.id == cursor)
+        )
+        cursor_hyp = cursor_row.scalar_one_or_none()
+        if cursor_hyp:
+            query = query.where(
+                or_(
+                    HypothesisModel.created_at < cursor_hyp.created_at,
+                    and_(
+                        HypothesisModel.created_at == cursor_hyp.created_at,
+                        HypothesisModel.id < cursor_hyp.id
+                    )
+                )
+            )
+
+    query = query.order_by(
+        HypothesisModel.created_at.desc(),
+        HypothesisModel.id.desc()
+    ).limit(limit + 1)
+
+    result = await db.execute(query)
+    hypotheses = result.scalars().all()
+
+    has_more = len(hypotheses) > limit
+    if has_more:
+        hypotheses = hypotheses[:limit]
+
+    count_result = await db.execute(
+        select(func.count()).select_from(HypothesisModel).where(*filters)
+    )
+    total_count = count_result.scalar_one()
+
+    return schemas.HypothesisListResponse(
+        hypotheses=[
+            schemas.HypothesisListItem(
+                id=h.id,
+                title=h.title,
+                statement=h.statement,
+                experiment_type=h.experiment_type,
+                status=h.status.value,
+                created_at=h.created_at
+            )
+            for h in hypotheses
+        ],
+        pagination=schemas.Pagination(
+            total=total_count,
+            cursor=hypotheses[-1].id if has_more else None,
+            has_more=has_more
+        )
+    )
+
+
+@app.get("/hypotheses/{hypothesis_id}", response_model=schemas.HypothesisResponse, tags=["Hypotheses"])
+async def get_hypothesis(
+    hypothesis_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get a specific hypothesis."""
+    result = await db.execute(
+        select(HypothesisModel).where(HypothesisModel.id == hypothesis_id)
+    )
+    hypothesis = result.scalar_one_or_none()
+
+    if not hypothesis:
+        raise HTTPException(status_code=404, detail="Hypothesis not found")
+
+    if hypothesis.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Count experiments linked to this hypothesis
+    exp_count_result = await db.execute(
+        select(func.count()).select_from(ExperimentModel).where(
+            ExperimentModel.hypothesis_id == hypothesis.id
+        )
+    )
+    experiments_count = exp_count_result.scalar_one()
+
+    return schemas.HypothesisResponse(
+        id=hypothesis.id,
+        user_id=hypothesis.user_id,
+        title=hypothesis.title,
+        statement=hypothesis.statement,
+        null_hypothesis=hypothesis.null_hypothesis,
+        experiment_type=hypothesis.experiment_type,
+        edison_agent=hypothesis.edison_agent,
+        edison_query=hypothesis.edison_query,
+        edison_response=hypothesis.edison_response,
+        intake_draft=hypothesis.intake_draft,
+        experiments_count=experiments_count,
+        created_at=hypothesis.created_at,
+        updated_at=hypothesis.updated_at
+    )
+
+
+@app.patch("/hypotheses/{hypothesis_id}", response_model=schemas.HypothesisResponse, tags=["Hypotheses"])
+async def update_hypothesis(
+    hypothesis_id: str,
+    update: schemas.HypothesisUpdate,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update a hypothesis."""
+    result = await db.execute(
+        select(HypothesisModel).where(HypothesisModel.id == hypothesis_id)
+    )
+    hypothesis = result.scalar_one_or_none()
+
+    if not hypothesis:
+        raise HTTPException(status_code=404, detail="Hypothesis not found")
+
+    if hypothesis.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Apply partial updates
+    update_data = update.model_dump(exclude_none=True)
+    for field, value in update_data.items():
+        setattr(hypothesis, field, value)
+
+    hypothesis.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(hypothesis)
+
+    # Count experiments linked to this hypothesis
+    exp_count_result = await db.execute(
+        select(func.count()).select_from(ExperimentModel).where(
+            ExperimentModel.hypothesis_id == hypothesis.id
+        )
+    )
+    experiments_count = exp_count_result.scalar_one()
+
+    return schemas.HypothesisResponse(
+        id=hypothesis.id,
+        user_id=hypothesis.user_id,
+        title=hypothesis.title,
+        statement=hypothesis.statement,
+        null_hypothesis=hypothesis.null_hypothesis,
+        experiment_type=hypothesis.experiment_type,
+        edison_agent=hypothesis.edison_agent,
+        edison_query=hypothesis.edison_query,
+        edison_response=hypothesis.edison_response,
+        intake_draft=hypothesis.intake_draft,
+        experiments_count=experiments_count,
+        created_at=hypothesis.created_at,
+        updated_at=hypothesis.updated_at
+    )
+
+
+@app.delete("/hypotheses/{hypothesis_id}", tags=["Hypotheses"])
+async def delete_hypothesis(
+    hypothesis_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Archive a hypothesis (soft delete)."""
+    result = await db.execute(
+        select(HypothesisModel).where(HypothesisModel.id == hypothesis_id)
+    )
+    hypothesis = result.scalar_one_or_none()
+
+    if not hypothesis:
+        raise HTTPException(status_code=404, detail="Hypothesis not found")
+
+    if hypothesis.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    hypothesis.status = DBHypothesisStatus.ARCHIVED
+    hypothesis.updated_at = datetime.utcnow()
+    await db.commit()
+
+    return {"deleted": True}
+
+
+@app.post(
+    "/hypotheses/{hypothesis_id}/to-experiment",
+    response_model=schemas.ExperimentCreatedResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Hypotheses"]
+)
+async def convert_hypothesis_to_experiment(
+    hypothesis_id: str,
+    request: schemas.HypothesisToExperimentRequest,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Convert a hypothesis to an experiment request."""
+    result = await db.execute(
+        select(HypothesisModel).where(HypothesisModel.id == hypothesis_id)
+    )
+    hypothesis = result.scalar_one_or_none()
+
+    if not hypothesis:
+        raise HTTPException(status_code=404, detail="Hypothesis not found")
+
+    if hypothesis.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Build experiment specification from hypothesis and request
+    spec: Dict[str, Any] = {}
+
+    # Start with the intake draft if available
+    if hypothesis.intake_draft:
+        spec = hypothesis.intake_draft.copy()
+
+    # Override with request parameters
+    spec["experiment_type"] = hypothesis.experiment_type
+    spec["title"] = request.title_override or hypothesis.title
+    spec["hypothesis"] = {
+        "statement": hypothesis.statement,
+        "null_hypothesis": hypothesis.null_hypothesis
+    }
+
+    if request.budget_max_usd:
+        if "turnaround_budget" not in spec:
+            spec["turnaround_budget"] = {}
+        spec["turnaround_budget"]["budget_max_usd"] = request.budget_max_usd
+
+    if request.bsl_level:
+        if "compliance" not in spec:
+            spec["compliance"] = {}
+        spec["compliance"]["bsl"] = request.bsl_level.value
+
+    if request.privacy:
+        spec["privacy"] = request.privacy
+
+    # Validate the specification
+    validation = validate_intake(spec)
+    if not validation.valid:
+        if "safety_rejected" in validation.safety_flags:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "safety_rejected",
+                    "message": "Experiment rejected for safety reasons",
+                    "flags": validation.safety_flags
+                }
+            )
+        primary_error = validation.errors[0] if validation.errors else None
+        message = "Experiment validation failed"
+        if primary_error:
+            message = f"{message}: {primary_error.path} {primary_error.message}"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "validation_failed",
+                "message": message,
+                "validation_errors": [e.model_dump() for e in validation.errors]
+            }
+        )
+
+    # Estimate cost
+    estimate = estimate_cost(spec)
+
+    # Create experiment
+    experiment = ExperimentModel(
+        requester_id=current_user.id,
+        hypothesis_id=hypothesis.id,
+        status=DBExperimentStatus.PENDING_REVIEW,
+        specification=spec,
+        experiment_type=spec.get("experiment_type"),
+        estimated_cost_usd=estimate.estimated_cost_usd.typical,
+        webhook_url=spec.get("requester_info", {}).get("webhook_url"),
+        payment_status=DBPaymentStatus.PENDING
+    )
+    db.add(experiment)
+
+    # Update hypothesis status
+    hypothesis.status = DBHypothesisStatus.USED
+    hypothesis.updated_at = datetime.utcnow()
+
+    await db.commit()
+    await db.refresh(experiment)
+
+    return schemas.ExperimentCreatedResponse(
+        experiment_id=experiment.id,
+        status=schemas.ExperimentStatus(experiment.status.value),
+        created_at=experiment.created_at,
+        estimated_cost_usd=experiment.estimated_cost_usd,
+        estimated_turnaround_days=14,
+        links=schemas.ExperimentLinks(
+            self=f"/experiments/{experiment.id}",
+            results=f"/experiments/{experiment.id}/results",
+            cancel=f"/experiments/{experiment.id}"
+        )
+    )
 
 
 # =============================================================================

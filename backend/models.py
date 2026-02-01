@@ -54,6 +54,12 @@ class DisputeReason(str, PyEnum):
     OTHER = "other"
 
 
+class HypothesisStatus(str, PyEnum):
+    DRAFT = "draft"
+    USED = "used"
+    ARCHIVED = "archived"
+
+
 class User(Base):
     """User accounts (both requesters and operators)."""
     __tablename__ = "users"
@@ -73,6 +79,7 @@ class User(Base):
     # Relationships
     experiments = relationship("Experiment", back_populates="requester", foreign_keys="Experiment.requester_id")
     operator_profile = relationship("OperatorProfile", back_populates="user", uselist=False)
+    hypotheses = relationship("Hypothesis", back_populates="user")
 
 
 class OperatorProfile(Base):
@@ -117,6 +124,39 @@ class OperatorProfile(Base):
     claimed_experiments = relationship("Experiment", back_populates="operator", foreign_keys="Experiment.operator_id")
 
 
+class Hypothesis(Base):
+    """User hypotheses for experiment design."""
+    __tablename__ = "hypotheses"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+
+    # Core hypothesis
+    title = Column(String, nullable=False)
+    statement = Column(Text, nullable=False)
+    null_hypothesis = Column(Text, nullable=True)
+
+    # Metadata
+    experiment_type = Column(String, index=True)
+    status = Column(Enum(HypothesisStatus), default=HypothesisStatus.DRAFT, index=True)
+
+    # Edison integration
+    edison_response = Column(JSON)
+    edison_agent = Column(String)
+    edison_query = Column(Text)
+
+    # Draft experiment
+    intake_draft = Column(JSON)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = relationship("User", back_populates="hypotheses")
+    experiments = relationship("Experiment", back_populates="source_hypothesis")
+
+
 class Experiment(Base):
     """Experiment requests."""
     __tablename__ = "experiments"
@@ -124,6 +164,7 @@ class Experiment(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     requester_id = Column(String, ForeignKey("users.id"), nullable=False)
     operator_id = Column(String, ForeignKey("operator_profiles.id"), nullable=True)
+    hypothesis_id = Column(String, ForeignKey("hypotheses.id"), nullable=True, index=True)
 
     # Status tracking
     status = Column(Enum(ExperimentStatus), default=ExperimentStatus.DRAFT)
@@ -149,6 +190,7 @@ class Experiment(Base):
     # Relationships
     requester = relationship("User", back_populates="experiments", foreign_keys=[requester_id])
     operator = relationship("OperatorProfile", back_populates="claimed_experiments", foreign_keys=[operator_id])
+    source_hypothesis = relationship("Hypothesis", back_populates="experiments", foreign_keys=[hypothesis_id])
     results = relationship("ExperimentResult", back_populates="experiment", uselist=False)
     disputes = relationship("Dispute", back_populates="experiment")
 
