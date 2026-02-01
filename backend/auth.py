@@ -14,6 +14,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import User, get_db
@@ -159,8 +160,32 @@ async def get_current_user(
     """
     # Development mode: bypass auth entirely
     if os.environ.get("LITMUS_AUTH_DISABLED", "").lower() in ("1", "true", "yes"):
+        dev_id = "dev-user"
+        user = await get_user_by_id(db, dev_id)
+        if not user:
+            # Avoid passlib/bcrypt in dev-mode bootstrapping; password isn't used.
+            dev_hashed_password = "$2b$12$C6UzMDM.H6dfI/f/IKxGhuD7P9Ck1eZQ5aC0cX3qEJ6xT9G2W9y7G"
+            user = User(
+                id=dev_id,
+                email="dev@litmus.science",
+                hashed_password=dev_hashed_password,
+                name="Development User",
+                organization="Litmus Dev",
+                role="admin",
+                rate_limit_tier="pro",
+                is_active=True,
+            )
+            db.add(user)
+            try:
+                await db.commit()
+            except IntegrityError:
+                # Another request likely created the user concurrently.
+                await db.rollback()
+                user = await get_user_by_id(db, dev_id)
+                if not user:
+                    user = await get_user_by_email(db, "dev@litmus.science")
         return AuthUser(
-            id="dev-user",
+            id=dev_id,
             email="dev@litmus.science",
             name="Development User",
             organization="Litmus Dev",
