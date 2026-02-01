@@ -30,7 +30,7 @@ export default function Home() {
           router.push("/dashboard");
           return;
         }
-      } catch (err) {
+      } catch {
         setStatus("Connecting to server...");
       }
 
@@ -42,7 +42,7 @@ export default function Home() {
     }
 
     checkAuth();
-  }, []);
+  }, [isAuthenticated, router, setAuth]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen gap-8 p-8">

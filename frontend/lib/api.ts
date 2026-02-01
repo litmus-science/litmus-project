@@ -93,29 +93,31 @@ async function request<T>(
   };
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Request failed" }));
-    const errorPayload = error as { detail?: unknown; message?: string; error?: unknown };
-    const detail = errorPayload.detail;
-    const detailMessage =
-      typeof detail === "object" &&
-      detail !== null &&
-      "message" in detail &&
-      typeof (detail as { message?: unknown }).message === "string"
-        ? (detail as { message: string }).message
-        : undefined;
-    const nestedError = errorPayload.error;
-    const nestedMessage =
-      typeof nestedError === "object" &&
-      nestedError !== null &&
-      "message" in nestedError &&
-      typeof (nestedError as { message?: unknown }).message === "string"
-        ? (nestedError as { message: string }).message
-        : undefined;
-    const message =
-      (typeof detail === "string" ? detail : detailMessage) ??
-      nestedMessage ??
-      errorPayload.message ??
-      "Request failed";
+    const error = (await response.json().catch(() => ({ message: "Request failed" }))) as unknown;
+    const isRecord = (value: unknown): value is Record<string, unknown> =>
+      typeof value === "object" && value !== null;
+    let message = "Request failed";
+    if (typeof error === "string") {
+      message = error;
+    } else if (isRecord(error)) {
+      const detail = error.detail;
+      if (typeof detail === "string") {
+        message = detail;
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        const first = detail[0];
+        if (isRecord(first)) {
+          const msg = typeof first.msg === "string" ? first.msg : undefined;
+          const loc = Array.isArray(first.loc)
+            ? first.loc.map((part) => String(part)).join(".")
+            : undefined;
+          message = loc && msg ? `${loc}: ${msg}` : msg || message;
+        }
+      } else if (isRecord(detail) && typeof detail.message === "string") {
+        message = detail.message;
+      } else if (typeof error.message === "string") {
+        message = error.message;
+      }
+    }
     throw new ApiError(response.status, message, rateLimit);
   }
 

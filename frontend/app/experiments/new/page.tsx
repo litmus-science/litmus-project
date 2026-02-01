@@ -5,50 +5,22 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import {
   createExperiment,
-  listTemplates,
   estimateCost,
   translateToCloudLab,
   getHypothesis,
   type TranslateResponse,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { TemplateListItem, HypothesisListItem, HypothesisResponse } from "@/lib/types";
+import type { HypothesisListItem, HypothesisResponse } from "@/lib/types";
 import { formatUsd } from "@/lib/format";
 import { HypothesisPicker } from "@/components/HypothesisPicker";
-
-const experimentTypes = [
-  { value: "sanger", label: "Sanger Sequencing" },
-  { value: "qpcr", label: "qPCR" },
-  { value: "cell_viability", label: "Cell Viability Assay" },
-  { value: "enzyme_inhibition", label: "Enzyme Inhibition Assay" },
-  { value: "microbial_growth", label: "Microbial Growth Curve" },
-  { value: "mic_mbc", label: "MIC/MBC Determination" },
-  { value: "zone_of_inhibition", label: "Zone of Inhibition" },
-  { value: "custom_protocol", label: "Custom Protocol" },
-];
-
-interface ExperimentForm {
-  experiment_type: string;
-  title: string;
-  hypothesis_statement: string;
-  hypothesis_null: string;
-  budget_max_usd: number;
-  bsl_level: string;
-  privacy: string;
-  notes: string;
-}
-
-// Map form experiment types to backend types
-const experimentTypeMap: Record<string, string> = {
-  sanger: "SANGER_PLASMID_VERIFICATION",
-  qpcr: "QPCR_EXPRESSION",
-  cell_viability: "CELL_VIABILITY_IC50",
-  enzyme_inhibition: "ENZYME_INHIBITION_IC50",
-  microbial_growth: "MICROBIAL_GROWTH_MATRIX",
-  mic_mbc: "MIC_MBC_ASSAY",
-  zone_of_inhibition: "ZONE_OF_INHIBITION",
-  custom_protocol: "CUSTOM",
-};
+import {
+  experimentTypes,
+  experimentTypeMap,
+  isExperimentTypeValue,
+  sampleExperiments,
+  type ExperimentForm,
+} from "@/lib/experimentSamples";
 
 // Reverse map from backend types to form types
 const backendToFormTypeMap: Record<string, string> = {
@@ -68,7 +40,6 @@ function NewExperimentPageContent() {
   const { isAuthenticated } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [templates, setTemplates] = useState<TemplateListItem[]>([]);
   const [estimate, setEstimate] = useState<{
     low: number;
     typical: number;
@@ -100,16 +71,16 @@ function NewExperimentPageContent() {
     },
   });
 
+  const [generatingExample, setGeneratingExample] = useState(false);
+
   const experimentType = watch("experiment_type");
 
   // Handle URL param ?hypothesisId={id}
   useEffect(() => {
     if (!isAuthenticated()) {
       router.push("/login");
-      return;
     }
 
-    listTemplates().then((data) => setTemplates(data.templates)).catch(console.error);
 
     const hypothesisId = searchParams.get("hypothesisId");
     if (hypothesisId) {
@@ -147,7 +118,7 @@ function NewExperimentPageContent() {
       : undefined;
 
     reset({
-      experiment_type: formType || "",
+      experiment_type: (formType || "") as ExperimentForm["experiment_type"],
       title: hypothesis.title,
       hypothesis_statement: hypothesis.statement,
       hypothesis_null: hypothesis.null_hypothesis || "",
@@ -186,6 +157,40 @@ function NewExperimentPageContent() {
     });
   };
 
+  // Generate random example from sample data
+  const generateRandomExample = async () => {
+    setGeneratingExample(true);
+    setError("");
+
+    try {
+      if (sampleExperiments.length === 0) {
+        throw new Error("No sample experiments available");
+      }
+
+      // If an experiment type is already selected, filter to matching samples
+      const currentType = watch("experiment_type");
+      const filteredSamples = currentType
+        ? sampleExperiments.filter((s) => s.experiment_type === currentType)
+        : sampleExperiments;
+
+      if (filteredSamples.length === 0) {
+        throw new Error(`No sample experiments available for ${currentType}`);
+      }
+
+      const randomIndex = Math.floor(Math.random() * filteredSamples.length);
+      const selected = filteredSamples[randomIndex];
+
+      // Reset form with selected values
+      reset(selected);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load sample experiments");
+      console.error(err);
+    } finally {
+      setGeneratingExample(false);
+    }
+  };
+
+
   // Generate AI-assisted protocol preview
   const generatePreview = async () => {
     const formData = watch();
@@ -200,8 +205,12 @@ function NewExperimentPageContent() {
     setTranslation(null);
 
     try {
+      const backendExperimentType = isExperimentTypeValue(formData.experiment_type)
+        ? experimentTypeMap[formData.experiment_type]
+        : "CUSTOM";
+
       const intake = {
-        experiment_type: experimentTypeMap[formData.experiment_type] || "CUSTOM",
+        experiment_type: backendExperimentType,
         title: formData.title,
         hypothesis: {
           statement: formData.hypothesis_statement,
@@ -270,9 +279,34 @@ function NewExperimentPageContent() {
 
   return (
     <div className="max-w-3xl mx-auto px-6 lg:px-8 py-12">
-      <div className="mb-10">
-        <span className="section-label">02 — Create</span>
-        <h1 className="text-4xl font-display text-surface-900">New Experiment</h1>
+      <div className="mb-10 flex items-end justify-between">
+        <div>
+          <span className="section-label">02 — Create</span>
+          <h1 className="text-4xl font-display text-surface-900">New Experiment</h1>
+        </div>
+        <button
+          type="button"
+          onClick={generateRandomExample}
+          disabled={generatingExample}
+          className="btn-secondary text-sm flex items-center gap-2 disabled:opacity-50"
+        >
+          {generatingExample ? (
+            <>
+              <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Loading...
+            </>
+          ) : (
+            <>
+              <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+              </svg>
+              Generate Example
+            </>
+          )}
+        </button>
       </div>
 
       <div className="card p-8">

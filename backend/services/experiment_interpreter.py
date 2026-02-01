@@ -97,10 +97,20 @@ class ExperimentInterpreter:
             )
 
         except Exception as e:
+            error_msg = str(e)
+
+            # Provide helpful error messages for common issues
+            if "API_KEY" in error_msg or "api_key" in error_msg.lower():
+                error_msg = (
+                    "LLM not configured. Set LLM_PROVIDER (anthropic/openai/openrouter) "
+                    "and the corresponding API key environment variable "
+                    "(ANTHROPIC_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY)."
+                )
+
             return InterpretationResult(
                 success=False,
                 enriched_intake=existing_intake or {},
-                error=str(e),
+                error=error_msg,
             )
 
     def _merge_intake(
