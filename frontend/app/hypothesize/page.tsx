@@ -601,7 +601,7 @@ export default function HypothesizePage() {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,240px)] gap-4">
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4">
                   {/* File Upload Area */}
                   <div
                     onDragOver={handleDragOver}
@@ -616,7 +616,7 @@ export default function HypothesizePage() {
                     <div className="flex items-center gap-4">
                       <div className="p-2 bg-white rounded border border-surface-200">
                         <svg className="w-5 h-5 text-surface-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                         </svg>
                       </div>
                       <div className="flex-1">
@@ -662,33 +662,27 @@ export default function HypothesizePage() {
                     )}
                   </div>
 
-                  {/* Cost + Start */}
-                  <div className="border border-surface-200 bg-surface-50 rounded-lg p-4 flex items-center justify-between gap-4 min-h-[88px]">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 text-xs font-mono font-medium uppercase tracking-wide text-surface-500">
-                        <svg className="h-4 w-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-2.5 0-4.5-1-4.5-2.5S9.5 3 12 3s4.5 1 4.5 2.5S14.5 8 12 8zm-4.5 2.5C7.5 12 9.5 13 12 13s4.5-1 4.5-2.5m-9 5C7.5 17 9.5 18 12 18s4.5-1 4.5-2.5" />
-                        </svg>
-                        <span>Cost</span>
+                  {/* Agent + Start */}
+                  <div className="border border-surface-200 bg-surface-50 rounded-lg p-4 flex flex-col justify-center gap-3 min-h-[88px]">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-mono uppercase tracking-wide text-surface-400">Agent</span>
+                        <p className="text-sm font-medium text-surface-800 mt-0.5">
+                          {selectedAgentCard?.label || "Literature"}
+                        </p>
                       </div>
-                      <p className="text-xs text-surface-500 mt-1.5 leading-tight">
-                        <span className="font-mono">Agent:</span>{" "}
-                        <span className="text-surface-800 font-medium">
-                          {selectedAgentCard?.label || "Agent"}
-                        </span>
-                      </p>
+                      <button
+                        type="button"
+                        onClick={handleGenerate}
+                        disabled={!query.trim()}
+                        className="btn-primary px-5 py-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0 whitespace-nowrap"
+                      >
+                        <span>Start</span>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                        </svg>
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleGenerate}
-                      disabled={!query.trim()}
-                      className="btn-primary px-5 py-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0 whitespace-nowrap"
-                    >
-                      <span>Start</span>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                      </svg>
-                    </button>
                   </div>
                 </div>
               </div>
