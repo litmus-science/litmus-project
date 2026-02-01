@@ -16,6 +16,7 @@ from typing import Any
 
 from .edison_client import EdisonClient, EdisonJobType, EdisonTaskResponse, get_edison_client
 from .llm_service import LLMService, get_llm_service
+from .experiment_types import get_experiment_field_name
 
 # Import cloud_labs registry - handle both package and direct execution
 try:
@@ -139,22 +140,16 @@ class EdisonLitmusIntegration:
         Returns:
             EdisonToLitmusResult with all outputs from the pipeline
         """
-<<<<<<< HEAD
-=======
         if isinstance(job_type, str):
             try:
                 job_type = EdisonJobType(job_type)
             except ValueError:
-                return EdisonTranslationResult(
+                return EdisonToLitmusResult(
                     success=False,
                     experiment_type="CUSTOM",
                     intake={},
                     error=f"Unsupported Edison job_type: {job_type}",
                 )
-
-        prompt = self._build_prompt(query, job_type, context)
-
->>>>>>> 3cb083c (refactor and tests)
         try:
             # Step 1: Query Edison for research insights
             edison_response = await self.edison.run_task_until_done(
@@ -282,7 +277,7 @@ class EdisonLitmusIntegration:
     def _build_intake(self, hypothesis_result: dict, original_query: str) -> dict:
         """Build a Litmus intake specification from hypothesis generation results."""
         experiment_type = hypothesis_result.get("experiment_type", "CUSTOM")
-        field_name = self._get_field_name(experiment_type)
+        field_name = get_experiment_field_name(experiment_type)
 
         intake = {
             "experiment_type": experiment_type,
@@ -320,20 +315,6 @@ class EdisonLitmusIntegration:
             intake[field_name] = params
 
         return intake
-
-    def _get_field_name(self, experiment_type: str) -> str:
-        """Map experiment type to field name."""
-        mapping = {
-            "SANGER_PLASMID_VERIFICATION": "sanger",
-            "QPCR_EXPRESSION": "qpcr",
-            "CELL_VIABILITY_IC50": "cell_viability",
-            "ENZYME_INHIBITION_IC50": "enzyme_inhibition",
-            "MICROBIAL_GROWTH_MATRIX": "microbial_growth",
-            "MIC_MBC_ASSAY": "mic_mbc",
-            "ZONE_OF_INHIBITION": "zone_of_inhibition",
-            "CUSTOM": "custom_protocol",
-        }
-        return mapping.get(experiment_type, "custom_protocol")
 
     def _check_hazardous(self, result: dict) -> bool:
         """Check if materials include hazardous chemicals."""
