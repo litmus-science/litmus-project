@@ -62,6 +62,12 @@ export function Navbar() {
                   New Experiment
                 </Link>
                 <Link
+                  href="/hypothesize"
+                  className="text-surface-500 hover:text-accent px-3 py-2 text-sm transition-colors tracking-wide"
+                >
+                  Hypothesize
+                </Link>
+                <Link
                   href="/templates"
                   className="text-surface-500 hover:text-accent px-3 py-2 text-sm transition-colors tracking-wide"
                 >

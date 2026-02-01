@@ -168,3 +168,16 @@ export interface SubmitResultsResponse {
   status: string;
   submitted_at: string;
 }
+
+// Edison types
+export type EdisonJobType = "literature" | "molecules" | "analysis" | "precedent";
+
+export interface EdisonTranslateResponse {
+  success: boolean;
+  experiment_type: string;
+  intake: Record<string, unknown>;
+  translations?: Record<string, unknown>;
+  suggestions: string[];
+  warnings: string[];
+  error?: string;
+}

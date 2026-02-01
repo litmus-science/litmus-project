@@ -10,6 +10,8 @@ import type {
   Job,
   ClaimResponse,
   SubmitResultsResponse,
+  EdisonJobType,
+  EdisonTranslateResponse,
 } from "./types";
 
 export type ValidationIssue = {
@@ -287,6 +289,18 @@ export async function translateToCloudLab(data: {
   use_llm?: boolean;
 }): Promise<TranslateResponse> {
   return request<TranslateResponse>("/cloud-labs/translate", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// Edison - Hypothesis Generation
+export async function generateHypothesis(data: {
+  query: string;
+  job_type: EdisonJobType;
+  context?: string;
+}): Promise<EdisonTranslateResponse> {
+  return request<EdisonTranslateResponse>("/cloud-labs/edison", {
     method: "POST",
     body: JSON.stringify(data),
   });
