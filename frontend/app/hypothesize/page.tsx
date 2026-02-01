@@ -11,11 +11,12 @@ import type {
   EdisonTranslateResponse,
   EdisonIntake,
   EdisonTranslationResult,
+  HypothesisResponse,
   HypothesisListItem,
 } from "@/lib/types";
-import { useHypothesisStore } from "@/lib/hypothesisStore";
 import { SaveHypothesisButton } from "@/components/SaveHypothesisButton";
 import { RecentHypotheses } from "@/components/RecentHypotheses";
+import { MIN_HYPOTHESIS_LENGTH } from "@/lib/hypothesisValidation";
 
 type FlowState =
   | "INITIAL"
@@ -129,7 +130,6 @@ const experimentTypeLabels: Record<string, string> = {
 };
 
 const processingSteps = ["Querying Edison...", "Analyzing results...", "Generating hypothesis..."];
-const minHypothesisLength = 10;
 const chatHistoryLimit = 20;
 const edisonResponseStorageKey = "hypothesize-edison-response";
 const edisonEditsStorageKey = "hypothesize-edison-edits";
@@ -151,6 +151,28 @@ interface ExperimentForm {
   privacy: string;
   notes: string;
 }
+
+const buildFallbackEdisonResponse = (hypothesis: HypothesisResponse): EdisonTranslateResponse => {
+  const experimentType = hypothesis.experiment_type || "CUSTOM";
+
+  return {
+    success: true,
+    experiment_type: experimentType,
+    intake: {
+      experiment_type: experimentType,
+      title: hypothesis.title || "Untitled Hypothesis",
+      hypothesis: {
+        statement: hypothesis.statement,
+        null_hypothesis: hypothesis.null_hypothesis ?? undefined,
+      },
+      compliance: {
+        bsl: "BSL1",
+      },
+    },
+    suggestions: [],
+    warnings: [],
+  };
+};
 
 function HypothesizePageContent() {
   const router = useRouter();
@@ -231,12 +253,14 @@ function HypothesizePageContent() {
           setEditedHypothesis(hypothesis.statement);
           setEditedNullHypothesis(hypothesis.null_hypothesis || "");
           setFlowState("HYPOTHESIS_REVIEW");
-        } else {
-          // Fallback: just load the hypothesis data
-          setEditedHypothesis(hypothesis.statement);
-          setEditedNullHypothesis(hypothesis.null_hypothesis || "");
-          setFlowState("HYPOTHESIS_REVIEW");
+          return;
         }
+
+        const fallbackResponse = buildFallbackEdisonResponse(hypothesis);
+        setEdisonResponse(fallbackResponse);
+        setEditedHypothesis(hypothesis.statement);
+        setEditedNullHypothesis(hypothesis.null_hypothesis || "");
+        setFlowState("HYPOTHESIS_REVIEW");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load hypothesis");
         setFlowState("INITIAL");
@@ -447,8 +471,8 @@ function HypothesizePageContent() {
     if (!edisonResponse) return;
 
     const trimmedHypothesis = editedHypothesis.trim();
-    if (trimmedHypothesis.length < minHypothesisLength) {
-      setError(`Hypothesis must be at least ${minHypothesisLength} characters`);
+    if (trimmedHypothesis.length < MIN_HYPOTHESIS_LENGTH) {
+      setError(`Hypothesis must be at least ${MIN_HYPOTHESIS_LENGTH} characters`);
       return;
     }
 
@@ -1063,7 +1087,7 @@ function HypothesizePageContent() {
                       type="button"
                       onClick={handleProceedToExperiment}
                       className="flex-1 btn-primary"
-                      disabled={editedHypothesis.trim().length < minHypothesisLength}
+                      disabled={editedHypothesis.trim().length < MIN_HYPOTHESIS_LENGTH}
                     >
                       Proceed to Experiment
                     </button>
@@ -1147,8 +1171,8 @@ function HypothesizePageContent() {
                     {...experimentForm.register("hypothesis_statement", {
                       required: "Hypothesis is required",
                       minLength: {
-                        value: minHypothesisLength,
-                        message: `Hypothesis must be at least ${minHypothesisLength} characters`,
+                        value: MIN_HYPOTHESIS_LENGTH,
+                        message: `Hypothesis must be at least ${MIN_HYPOTHESIS_LENGTH} characters`,
                       },
                     })}
                     rows={3}

@@ -84,7 +84,7 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
     if (isOpen) {
       fetchHypotheses(true);
     }
-  }, [isOpen, filterType]);
+  }, [isOpen, filterType, fetchHypotheses]);
 
   const handleSelect = useCallback(
     (hypothesis: HypothesisListItem) => {

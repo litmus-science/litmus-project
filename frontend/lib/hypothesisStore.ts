@@ -5,7 +5,6 @@ import { persist } from "zustand/middleware";
 import type {
   EdisonJobType,
   EdisonTranslateResponse,
-  EdisonIntake,
 } from "./types";
 
 export interface ChatSession {

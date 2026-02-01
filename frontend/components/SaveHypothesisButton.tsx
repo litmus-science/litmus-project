@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { createHypothesis } from "@/lib/api";
+import { MIN_HYPOTHESIS_LENGTH } from "@/lib/hypothesisValidation";
 
 interface SaveHypothesisButtonProps {
   hypothesis: {
@@ -34,7 +35,7 @@ export function SaveHypothesisButton({
 }: SaveHypothesisButtonProps) {
   const [saveState, setSaveState] = useState<SaveState>("idle");
 
-  const isValid = hypothesis.statement.length >= 20;
+  const isValid = hypothesis.statement.length >= MIN_HYPOTHESIS_LENGTH;
   const isDisabled = disabled || !isValid || saveState === "saving";
 
   const handleSave = useCallback(async () => {
@@ -88,7 +89,7 @@ export function SaveHypothesisButton({
       className={`btn-secondary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${className}`}
       aria-label={
         !isValid
-          ? "Hypothesis must be at least 20 characters"
+          ? `Hypothesis must be at least ${MIN_HYPOTHESIS_LENGTH} characters`
           : saveState === "saving"
           ? "Saving hypothesis..."
           : saveState === "success"

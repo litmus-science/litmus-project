@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import {
@@ -60,7 +60,6 @@ function NewExperimentPageContent() {
     register,
     handleSubmit,
     watch,
-    setValue,
     reset,
     formState: { errors },
   } = useForm<ExperimentForm>({
@@ -75,12 +74,29 @@ function NewExperimentPageContent() {
 
   const experimentType = watch("experiment_type");
 
+  // Pre-fill form from hypothesis (defined before useEffects that use it)
+  const prefillFromHypothesis = useCallback((hypothesis: HypothesisResponse) => {
+    const formType = hypothesis.experiment_type
+      ? backendToFormTypeMap[hypothesis.experiment_type]
+      : undefined;
+
+    reset({
+      experiment_type: (formType || "") as ExperimentForm["experiment_type"],
+      title: hypothesis.title,
+      hypothesis_statement: hypothesis.statement,
+      hypothesis_null: hypothesis.null_hypothesis || "",
+      bsl_level: "BSL1",
+      privacy: "open",
+      budget_max_usd: 500,
+      notes: "",
+    });
+  }, [reset]);
+
   // Handle URL param ?hypothesisId={id}
   useEffect(() => {
     if (!isAuthenticated()) {
       router.push("/login");
     }
-
 
     const hypothesisId = searchParams.get("hypothesisId");
     if (hypothesisId) {
@@ -94,7 +110,7 @@ function NewExperimentPageContent() {
           setError("Failed to load hypothesis from URL");
         });
     }
-  }, [isAuthenticated, router, searchParams]);
+  }, [isAuthenticated, router, searchParams, prefillFromHypothesis]);
 
   useEffect(() => {
     if (experimentType) {
@@ -110,24 +126,6 @@ function NewExperimentPageContent() {
       setTranslation(null);
     }
   }, [useAI]);
-
-  // Pre-fill form from hypothesis
-  const prefillFromHypothesis = (hypothesis: HypothesisResponse) => {
-    const formType = hypothesis.experiment_type
-      ? backendToFormTypeMap[hypothesis.experiment_type]
-      : undefined;
-
-    reset({
-      experiment_type: (formType || "") as ExperimentForm["experiment_type"],
-      title: hypothesis.title,
-      hypothesis_statement: hypothesis.statement,
-      hypothesis_null: hypothesis.null_hypothesis || "",
-      bsl_level: "BSL1",
-      privacy: "open",
-      budget_max_usd: 500,
-      notes: "",
-    });
-  };
 
   // Handle hypothesis selection from picker
   const handleHypothesisSelect = async (item: HypothesisListItem) => {

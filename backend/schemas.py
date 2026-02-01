@@ -7,8 +7,9 @@ from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel, Field, EmailStr
 from enum import Enum
 
-JsonPrimitive = Union[str, int, float, bool, None]
-JsonValue = Union[JsonPrimitive, List["JsonValue"], Dict[str, "JsonValue"]]
+# JSON type for arbitrary JSON data (opaque blobs not requiring deep validation)
+# Using object as the value type allows nested structures without recursive type issues
+JsonDict = Dict[str, object]
 
 
 # Enums
@@ -470,8 +471,8 @@ class HypothesisCreate(BaseModel):
     experiment_type: str
     edison_agent: Optional[str] = None
     edison_query: Optional[str] = None
-    edison_response: Optional[Dict[str, JsonValue]] = None
-    intake_draft: Optional[Dict[str, JsonValue]] = None
+    edison_response: Optional[JsonDict] = None
+    intake_draft: Optional[JsonDict] = None
 
 
 class HypothesisUpdate(BaseModel):
@@ -481,8 +482,8 @@ class HypothesisUpdate(BaseModel):
     experiment_type: Optional[str] = None
     edison_agent: Optional[str] = None
     edison_query: Optional[str] = None
-    edison_response: Optional[Dict[str, JsonValue]] = None
-    intake_draft: Optional[Dict[str, JsonValue]] = None
+    edison_response: Optional[JsonDict] = None
+    intake_draft: Optional[JsonDict] = None
 
 
 class HypothesisResponse(BaseModel):
@@ -494,8 +495,8 @@ class HypothesisResponse(BaseModel):
     experiment_type: str
     edison_agent: Optional[str]
     edison_query: Optional[str]
-    edison_response: Optional[Dict[str, JsonValue]]
-    intake_draft: Optional[Dict[str, JsonValue]]
+    edison_response: Optional[JsonDict]
+    intake_draft: Optional[JsonDict]
     experiments_count: int = 0
     created_at: datetime
     updated_at: datetime
