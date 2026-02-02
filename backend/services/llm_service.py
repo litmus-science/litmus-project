@@ -5,20 +5,48 @@ Supports Anthropic, OpenAI, and OpenRouter providers,
 configurable via environment variable.
 """
 
-import os
+from __future__ import annotations
+
 import json
+import os
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING
+
+from backend.types import JsonObject
+
+if TYPE_CHECKING:
+    from anthropic import AsyncAnthropic
+    from anthropic.types import MessageParam
+    from openai import AsyncOpenAI
+    from openai.types.chat import ChatCompletionMessageParam
 
 
 @dataclass
 class LLMResponse:
     """Response from an LLM provider."""
+
     content: str
     model: str
     usage: dict[str, int] | None = None
-    raw_response: Any = None
+    raw_response: object | None = None
+
+
+def _parse_json_object(payload: str) -> JsonObject:
+    parsed = json.loads(payload)
+    if isinstance(parsed, dict):
+        return parsed
+    raise ValueError("LLM response must be a JSON object.")
+
+
+def _extract_anthropic_text(content: Sequence[object]) -> str:
+    from anthropic.types import TextBlock
+
+    texts = [block.text for block in content if isinstance(block, TextBlock)]
+    if not texts:
+        raise ValueError("Anthropic response content was empty.")
+    return "".join(texts)
 
 
 class LLMProvider(ABC):
@@ -42,7 +70,7 @@ class LLMProvider(ABC):
         system_prompt: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
-    ) -> dict:
+    ) -> JsonObject:
         """Generate a JSON response from the LLM."""
         pass
 
@@ -55,16 +83,19 @@ class AnthropicProvider(LLMProvider):
         if not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY environment variable is required")
         self.model = model
-        self._client = None
+        self._client: AsyncAnthropic | None = None
 
     @property
-    def client(self):
+    def client(self) -> AsyncAnthropic:
         if self._client is None:
             try:
                 import anthropic
+
                 self._client = anthropic.AsyncAnthropic(api_key=self.api_key)
             except ImportError:
-                raise ImportError("anthropic package is required. Install with: pip install anthropic")
+                raise ImportError(
+                    "anthropic package is required. Install with: pip install anthropic"
+                )
         return self._client
 
     async def generate(
@@ -75,19 +106,25 @@ class AnthropicProvider(LLMProvider):
         max_tokens: int = 4096,
     ) -> LLMResponse:
         """Generate a response using Claude."""
-        kwargs = {
-            "model": self.model,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "messages": [{"role": "user", "content": prompt}],
-        }
+        messages: list[MessageParam] = [{"role": "user", "content": prompt}]
         if system_prompt:
-            kwargs["system"] = system_prompt
-
-        response = await self.client.messages.create(**kwargs)
+            response = await self.client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=messages,
+                system=system_prompt,
+            )
+        else:
+            response = await self.client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=messages,
+            )
 
         return LLMResponse(
-            content=response.content[0].text,
+            content=_extract_anthropic_text(response.content),
             model=response.model,
             usage={
                 "input_tokens": response.usage.input_tokens,
@@ -102,9 +139,11 @@ class AnthropicProvider(LLMProvider):
         system_prompt: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
-    ) -> dict:
+    ) -> JsonObject:
         """Generate a JSON response using Claude."""
-        json_system = (system_prompt or "") + "\n\nYou must respond with valid JSON only. No other text."
+        json_system = (
+            system_prompt or ""
+        ) + "\n\nYou must respond with valid JSON only. No other text."
         response = await self.generate(
             prompt=prompt,
             system_prompt=json_system,
@@ -120,7 +159,7 @@ class AnthropicProvider(LLMProvider):
             content = content[3:]
         if content.endswith("```"):
             content = content[:-3]
-        return json.loads(content.strip())
+        return _parse_json_object(content.strip())
 
 
 class OpenAIProvider(LLMProvider):
@@ -131,13 +170,14 @@ class OpenAIProvider(LLMProvider):
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required")
         self.model = model
-        self._client = None
+        self._client: AsyncOpenAI | None = None
 
     @property
-    def client(self):
+    def client(self) -> AsyncOpenAI:
         if self._client is None:
             try:
                 import openai
+
                 self._client = openai.AsyncOpenAI(api_key=self.api_key)
             except ImportError:
                 raise ImportError("openai package is required. Install with: pip install openai")
@@ -151,7 +191,7 @@ class OpenAIProvider(LLMProvider):
         max_tokens: int = 4096,
     ) -> LLMResponse:
         """Generate a response using GPT."""
-        messages = []
+        messages: list[ChatCompletionMessageParam] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
@@ -164,13 +204,18 @@ class OpenAIProvider(LLMProvider):
         )
 
         choice = response.choices[0]
+        content = choice.message.content
+        if content is None:
+            raise ValueError("OpenAI response content was empty.")
         return LLMResponse(
-            content=choice.message.content,
+            content=content,
             model=response.model,
             usage={
                 "input_tokens": response.usage.prompt_tokens,
                 "output_tokens": response.usage.completion_tokens,
-            } if response.usage else None,
+            }
+            if response.usage
+            else None,
             raw_response=response,
         )
 
@@ -180,9 +225,9 @@ class OpenAIProvider(LLMProvider):
         system_prompt: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
-    ) -> dict:
+    ) -> JsonObject:
         """Generate a JSON response using GPT with JSON mode."""
-        messages = []
+        messages: list[ChatCompletionMessageParam] = []
         json_system = (system_prompt or "") + "\n\nYou must respond with valid JSON only."
         messages.append({"role": "system", "content": json_system})
         messages.append({"role": "user", "content": prompt})
@@ -196,7 +241,9 @@ class OpenAIProvider(LLMProvider):
         )
 
         content = response.choices[0].message.content
-        return json.loads(content)
+        if content is None:
+            raise ValueError("OpenAI response content was empty.")
+        return _parse_json_object(content)
 
 
 class OpenRouterProvider(LLMProvider):
@@ -216,13 +263,14 @@ class OpenRouterProvider(LLMProvider):
             "OPENROUTER_BASE_URL",
             "https://openrouter.ai/api/v1",
         )
-        self._client = None
+        self._client: AsyncOpenAI | None = None
 
     @property
-    def client(self):
+    def client(self) -> AsyncOpenAI:
         if self._client is None:
             try:
                 import openai
+
                 self._client = openai.AsyncOpenAI(
                     api_key=self.api_key,
                     base_url=self.base_url,
@@ -239,7 +287,7 @@ class OpenRouterProvider(LLMProvider):
         max_tokens: int = 4096,
     ) -> LLMResponse:
         """Generate a response using OpenRouter."""
-        messages = []
+        messages: list[ChatCompletionMessageParam] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
@@ -252,13 +300,18 @@ class OpenRouterProvider(LLMProvider):
         )
 
         choice = response.choices[0]
+        content = choice.message.content
+        if content is None:
+            raise ValueError("OpenRouter response content was empty.")
         return LLMResponse(
-            content=choice.message.content,
+            content=content,
             model=response.model,
             usage={
                 "input_tokens": response.usage.prompt_tokens,
                 "output_tokens": response.usage.completion_tokens,
-            } if response.usage else None,
+            }
+            if response.usage
+            else None,
             raw_response=response,
         )
 
@@ -268,9 +321,9 @@ class OpenRouterProvider(LLMProvider):
         system_prompt: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
-    ) -> dict:
+    ) -> JsonObject:
         """Generate a JSON response using OpenRouter with JSON mode."""
-        messages = []
+        messages: list[ChatCompletionMessageParam] = []
         json_system = (system_prompt or "") + "\n\nYou must respond with valid JSON only."
         messages.append({"role": "system", "content": json_system})
         messages.append({"role": "user", "content": prompt})
@@ -284,7 +337,9 @@ class OpenRouterProvider(LLMProvider):
         )
 
         content = response.choices[0].message.content
-        return json.loads(content)
+        if content is None:
+            raise ValueError("OpenRouter response content was empty.")
+        return _parse_json_object(content)
 
 
 class LLMService:
@@ -333,7 +388,7 @@ class LLMService:
         system_prompt: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
-    ) -> dict:
+    ) -> JsonObject:
         """Generate a JSON response."""
         return await self.provider.generate_json(
             prompt=prompt,

@@ -6,11 +6,30 @@ and extract structured parameters for cloud lab translation.
 """
 
 from dataclasses import dataclass, field
-from typing import Any
 
+from backend.types import JsonObject, JsonValue
+
+from .experiment_types import get_experiment_field_name
 from .llm_service import LLMService, get_llm_service
 from .prompts import SYSTEM_PROMPT, get_interpretation_prompt
-from .experiment_types import get_experiment_field_name
+
+
+def _as_str_list(value: JsonValue) -> list[str]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, str)]
+    return []
+
+
+def _as_float(value: JsonValue, default: float = 0.0) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    return default
+
+
+def _as_object(value: JsonValue) -> JsonObject:
+    if isinstance(value, dict):
+        return value
+    return {}
 
 
 @dataclass
@@ -18,7 +37,7 @@ class InterpretationResult:
     """Result of experiment interpretation."""
 
     success: bool
-    enriched_intake: dict[str, Any]
+    enriched_intake: JsonObject
     suggestions: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     confidence: float = 0.0
@@ -42,7 +61,7 @@ class ExperimentInterpreter:
         title: str,
         hypothesis: str,
         notes: str | None = None,
-        existing_intake: dict | None = None,
+        existing_intake: JsonObject | None = None,
     ) -> InterpretationResult:
         """
         Interpret an experiment description and extract parameters.
@@ -75,9 +94,9 @@ class ExperimentInterpreter:
             )
 
             # Extract the results
-            suggestions = result.pop("suggestions", [])
-            warnings = result.pop("warnings", [])
-            confidence = result.pop("confidence", 0.8)
+            suggestions = _as_str_list(result.pop("suggestions", []))
+            warnings = _as_str_list(result.pop("warnings", []))
+            confidence = _as_float(result.pop("confidence", 0.8), default=0.8)
 
             # Merge with existing intake if provided
             enriched_intake = self._merge_intake(
@@ -115,66 +134,82 @@ class ExperimentInterpreter:
 
     def _merge_intake(
         self,
-        existing: dict,
-        interpreted: dict,
+        existing: JsonObject,
+        interpreted: JsonObject,
         experiment_type: str,
         title: str,
         hypothesis: str,
-    ) -> dict:
+    ) -> JsonObject:
         """Merge interpreted data with existing intake."""
         # Start with existing data
-        result = dict(existing)
+        result: JsonObject = dict(existing)
 
         # Ensure required fields
         result["experiment_type"] = experiment_type
         result["title"] = title
 
         # Set up hypothesis structure if not present
-        if "hypothesis" not in result:
+        if "hypothesis" not in result or not isinstance(result["hypothesis"], dict):
             result["hypothesis"] = {}
-        result["hypothesis"]["statement"] = hypothesis
+        hypothesis_section = result["hypothesis"]
+        if isinstance(hypothesis_section, dict):
+            hypothesis_section["statement"] = hypothesis
 
         # Merge experiment-specific section
         field_name = get_experiment_field_name(experiment_type)
         if field_name in interpreted:
-            if field_name not in result:
+            if field_name not in result or not isinstance(result[field_name], dict):
                 result[field_name] = {}
-            result[field_name] = self._deep_merge(
-                result[field_name],
-                interpreted[field_name],
-            )
+            base_section = result[field_name]
+            interpreted_section = interpreted[field_name]
+            if isinstance(base_section, dict) and isinstance(interpreted_section, dict):
+                merged = self._deep_merge(
+                    base_section,
+                    interpreted_section,
+                )
+                result[field_name] = merged
 
         # Merge replicates
         if "replicates" in interpreted:
-            if "replicates" not in result:
+            if "replicates" not in result or not isinstance(result["replicates"], dict):
                 result["replicates"] = {}
-            result["replicates"] = self._deep_merge(
-                result["replicates"],
-                interpreted["replicates"],
-            )
+            base_replicates = result["replicates"]
+            interpreted_replicates = interpreted["replicates"]
+            if isinstance(base_replicates, dict) and isinstance(interpreted_replicates, dict):
+                result["replicates"] = self._deep_merge(
+                    base_replicates,
+                    interpreted_replicates,
+                )
 
         # Merge materials
         if "materials_provided" in interpreted:
-            materials = list(result.get("materials_provided", []))
-            # Convert to proper format if needed
-            for material in interpreted["materials_provided"]:
-                if isinstance(material, str):
-                    materials.append({"name": material})
-                else:
-                    materials.append(material)
+            materials_value = result.get("materials_provided")
+            materials: list[JsonValue] = (
+                list(materials_value) if isinstance(materials_value, list) else []
+            )
+            interpreted_materials = interpreted["materials_provided"]
+            if isinstance(interpreted_materials, list):
+                for material in interpreted_materials:
+                    if isinstance(material, str):
+                        materials.append({"name": material})
+                    else:
+                        materials.append(material)
             result["materials_provided"] = materials
 
         return result
 
-    def _deep_merge(self, base: dict, updates: dict) -> dict:
+    def _deep_merge(self, base: JsonObject, updates: JsonObject) -> JsonObject:
         """Deep merge two dictionaries, with updates taking precedence."""
-        result = dict(base)
+        result: JsonObject = dict(base)
         for key, value in updates.items():
             if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-                result[key] = self._deep_merge(result[key], value)
+                base_section = _as_object(result[key])
+                update_section = _as_object(value)
+                result[key] = self._deep_merge(base_section, update_section)
             else:
                 result[key] = value
         return result
+
 
 # Singleton instance
 _interpreter: ExperimentInterpreter | None = None

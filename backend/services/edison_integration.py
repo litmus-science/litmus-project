@@ -12,22 +12,29 @@ Workflow:
 """
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING
 
-from .edison_client import EdisonClient, EdisonJobType, EdisonTaskResponse, get_edison_client
-from .llm_service import LLMService, get_llm_service
+from backend.types import JsonObject, JsonValue
+
+from .edison_client import EdisonClient, EdisonJobType, get_edison_client
+from .edison_types import EdisonTaskResponse
 from .experiment_types import get_experiment_field_name
+from .llm_service import LLMService, get_llm_service
 
 # Import cloud_labs registry - handle both package and direct execution
-try:
+if TYPE_CHECKING:
     from backend.cloud_labs.registry import translate_intake as do_translate_intake
-except ImportError:
-    from cloud_labs.registry import translate_intake as do_translate_intake
+else:
+    try:
+        from backend.cloud_labs.registry import translate_intake as do_translate_intake
+    except ImportError:
+        from cloud_labs.registry import translate_intake as do_translate_intake
 
 
 @dataclass
 class EdisonToLitmusResult:
     """Result of the Edison-to-Litmus pipeline."""
+
     success: bool
     # Edison phase
     edison_response: EdisonTaskResponse | None = None
@@ -38,68 +45,72 @@ class EdisonToLitmusResult:
     experiment_type: str = "CUSTOM"
     title: str | None = None
     # Litmus intake
-    intake: dict[str, Any] = field(default_factory=dict)
+    intake: JsonObject = field(default_factory=dict)
     # Cloud lab translations
-    translations: dict[str, Any] | None = None
+    translations: dict[str, JsonObject] | None = None
     # Metadata
     suggestions: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
 
 
-HYPOTHESIS_GENERATION_PROMPT = """You are a scientific hypothesis generator. Given research insights from Edison Scientific, generate a well-formed testable hypothesis suitable for wet lab validation.
+def _as_str(value: JsonValue | None, default: str | None = None) -> str | None:
+    if isinstance(value, str):
+        return value
+    return default
 
-## Edison Research Insights
 
-{edison_insights}
+def _as_str_list(value: JsonValue | None) -> list[str]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, str)]
+    return []
 
-## User's Original Query
 
-{query}
-
-## Instructions
-
-Based on the Edison research insights and user query, generate:
-
-1. A testable hypothesis statement that can be validated in a wet lab
-2. A corresponding null hypothesis
-3. The most appropriate experiment type for testing this hypothesis
-4. A descriptive title for the experiment
-5. Key experimental parameters that should be tested
-
-## Available Experiment Types
-
-- SANGER_PLASMID_VERIFICATION: DNA sequencing verification
-- QPCR_EXPRESSION: Gene expression analysis
-- CELL_VIABILITY_IC50: Cell viability and IC50 determination
-- ENZYME_INHIBITION_IC50: Enzyme inhibition assays
-- MICROBIAL_GROWTH_MATRIX: Bacterial/yeast growth curves
-- MIC_MBC_ASSAY: Antibiotic susceptibility testing
-- ZONE_OF_INHIBITION: Disk diffusion assays
-- CUSTOM: Custom multi-step protocols
-
-## Output Format
-
-Return a JSON object:
-```json
-{{
-  "hypothesis": "Testable hypothesis statement",
-  "null_hypothesis": "Corresponding null hypothesis",
-  "experiment_type": "EXPERIMENT_TYPE_ENUM",
-  "title": "Descriptive experiment title",
-  "experimental_parameters": {{
-    // Key parameters extracted from the research
-  }},
-  "materials_needed": [
-    {{"name": "...", "identifier": "CAS/SMILES/etc", "notes": "..."}}
-  ],
-  "suggested_protocol": "Brief description of recommended approach",
-  "confidence": 0.85,
-  "suggestions": ["..."],
-  "warnings": ["..."]
-}}
-```
-"""
+HYPOTHESIS_GENERATION_PROMPT = (
+    "You are a scientific hypothesis generator. Given research insights from\n"
+    "Edison Scientific, generate a well-formed testable hypothesis suitable for wet lab "
+    "validation.\n\n"
+    "## Edison Research Insights\n\n"
+    "{edison_insights}\n\n"
+    "## User's Original Query\n\n"
+    "{query}\n\n"
+    "## Instructions\n\n"
+    "Based on the Edison research insights and user query, generate:\n\n"
+    "1. A testable hypothesis statement that can be validated in a wet lab\n"
+    "2. A corresponding null hypothesis\n"
+    "3. The most appropriate experiment type for testing this hypothesis\n"
+    "4. A descriptive title for the experiment\n"
+    "5. Key experimental parameters that should be tested\n\n"
+    "## Available Experiment Types\n\n"
+    "- SANGER_PLASMID_VERIFICATION: DNA sequencing verification\n"
+    "- QPCR_EXPRESSION: Gene expression analysis\n"
+    "- CELL_VIABILITY_IC50: Cell viability and IC50 determination\n"
+    "- ENZYME_INHIBITION_IC50: Enzyme inhibition assays\n"
+    "- MICROBIAL_GROWTH_MATRIX: Bacterial/yeast growth curves\n"
+    "- MIC_MBC_ASSAY: Antibiotic susceptibility testing\n"
+    "- ZONE_OF_INHIBITION: Disk diffusion assays\n"
+    "- CUSTOM: Custom multi-step protocols\n\n"
+    "## Output Format\n\n"
+    "Return a JSON object:\n"
+    "```json\n"
+    "{{\n"
+    '  "hypothesis": "Testable hypothesis statement",\n'
+    '  "null_hypothesis": "Corresponding null hypothesis",\n'
+    '  "experiment_type": "EXPERIMENT_TYPE_ENUM",\n'
+    '  "title": "Descriptive experiment title",\n'
+    '  "experimental_parameters": {{\n'
+    "    // Key parameters extracted from the research\n"
+    "  }},\n"
+    '  "materials_needed": [\n'
+    '    {{"name": "...", "identifier": "CAS/SMILES/etc", "notes": "..."}}\n'
+    "  ],\n"
+    '  "suggested_protocol": "Brief description of recommended approach",\n'
+    '  "confidence": 0.85,\n'
+    '  "suggestions": ["..."],\n'
+    '  "warnings": ["..."]\n'
+    "}\n"
+    "```\n"
+)
 
 
 class EdisonLitmusIntegration:
@@ -124,7 +135,7 @@ class EdisonLitmusIntegration:
     async def research_and_translate(
         self,
         query: str,
-        job_type: EdisonJobType = EdisonJobType.MOLECULES,
+        job_type: EdisonJobType | str = EdisonJobType.MOLECULES,
         additional_context: str | None = None,
         translate_to_cloud_labs: bool = True,
     ) -> EdisonToLitmusResult:
@@ -165,6 +176,12 @@ class EdisonLitmusIntegration:
                 )
 
             edison_insights = edison_response.formatted_answer or edison_response.answer
+            if edison_insights is None:
+                return EdisonToLitmusResult(
+                    success=False,
+                    edison_response=edison_response,
+                    error="Edison response did not include insights",
+                )
 
             # Step 2: Generate hypothesis from Edison insights
             hypothesis_result = await self._generate_hypothesis(
@@ -173,7 +190,8 @@ class EdisonLitmusIntegration:
                 additional_context=additional_context,
             )
 
-            if not hypothesis_result.get("hypothesis"):
+            hypothesis_text = _as_str(hypothesis_result.get("hypothesis"))
+            if not hypothesis_text:
                 return EdisonToLitmusResult(
                     success=False,
                     edison_response=edison_response,
@@ -184,17 +202,20 @@ class EdisonLitmusIntegration:
             # Step 3: Build Litmus intake
             intake = self._build_intake(hypothesis_result, query)
 
+            experiment_type_value = hypothesis_result.get("experiment_type")
+            experiment_type = _as_str(experiment_type_value, "CUSTOM") or "CUSTOM"
+
             result = EdisonToLitmusResult(
                 success=True,
                 edison_response=edison_response,
                 edison_insights=edison_insights,
-                hypothesis=hypothesis_result.get("hypothesis"),
-                null_hypothesis=hypothesis_result.get("null_hypothesis"),
-                experiment_type=hypothesis_result.get("experiment_type", "CUSTOM"),
-                title=hypothesis_result.get("title"),
+                hypothesis=hypothesis_text,
+                null_hypothesis=_as_str(hypothesis_result.get("null_hypothesis")),
+                experiment_type=experiment_type,
+                title=_as_str(hypothesis_result.get("title")),
                 intake=intake,
-                suggestions=hypothesis_result.get("suggestions", []),
-                warnings=hypothesis_result.get("warnings", []),
+                suggestions=_as_str_list(hypothesis_result.get("suggestions")),
+                warnings=_as_str_list(hypothesis_result.get("warnings")),
             )
 
             # Step 4: Translate to cloud lab protocols
@@ -240,7 +261,7 @@ class EdisonLitmusIntegration:
         query: str,
         edison_insights: str,
         additional_context: str | None = None,
-    ) -> dict:
+    ) -> JsonObject:
         """
         Generate a hypothesis from pre-existing Edison insights.
 
@@ -268,25 +289,30 @@ class EdisonLitmusIntegration:
                 additional_context=additional_context,
             )
 
-            if not hypothesis_result.get("hypothesis"):
+            hypothesis_text = _as_str(hypothesis_result.get("hypothesis"))
+            if not hypothesis_text:
                 return EdisonToLitmusResult(
                     success=False,
                     edison_insights=edison_insights,
-                    error=hypothesis_result.get("error") or "Failed to generate hypothesis",
+                    error=_as_str(hypothesis_result.get("error"))
+                    or "Failed to generate hypothesis",
                 )
 
             intake = self._build_intake(hypothesis_result, query)
 
+            experiment_type_value = hypothesis_result.get("experiment_type")
+            experiment_type = _as_str(experiment_type_value, "CUSTOM") or "CUSTOM"
+
             result = EdisonToLitmusResult(
                 success=True,
                 edison_insights=edison_insights,
-                hypothesis=hypothesis_result.get("hypothesis"),
-                null_hypothesis=hypothesis_result.get("null_hypothesis"),
-                experiment_type=hypothesis_result.get("experiment_type", "CUSTOM"),
-                title=hypothesis_result.get("title"),
+                hypothesis=hypothesis_text,
+                null_hypothesis=_as_str(hypothesis_result.get("null_hypothesis")),
+                experiment_type=experiment_type,
+                title=_as_str(hypothesis_result.get("title")),
                 intake=intake,
-                suggestions=hypothesis_result.get("suggestions", []),
-                warnings=hypothesis_result.get("warnings", []),
+                suggestions=_as_str_list(hypothesis_result.get("suggestions")),
+                warnings=_as_str_list(hypothesis_result.get("warnings")),
             )
 
             if translate_to_cloud_labs:
@@ -318,7 +344,7 @@ class EdisonLitmusIntegration:
         query: str,
         edison_insights: str,
         additional_context: str | None = None,
-    ) -> dict:
+    ) -> JsonObject:
         """Use LLM to generate a hypothesis from Edison insights."""
         prompt = HYPOTHESIS_GENERATION_PROMPT.format(
             edison_insights=edison_insights,
@@ -338,17 +364,40 @@ class EdisonLitmusIntegration:
         except Exception as e:
             return {"error": str(e)}
 
-    def _build_intake(self, hypothesis_result: dict, original_query: str) -> dict:
+    def _build_intake(self, hypothesis_result: JsonObject, original_query: str) -> JsonObject:
         """Build a Litmus intake specification from hypothesis generation results."""
-        experiment_type = hypothesis_result.get("experiment_type", "CUSTOM")
+        experiment_type_value = hypothesis_result.get("experiment_type")
+        experiment_type = (
+            experiment_type_value if isinstance(experiment_type_value, str) else "CUSTOM"
+        )
         field_name = get_experiment_field_name(experiment_type)
 
-        intake = {
+        title_value = hypothesis_result.get("title")
+        title = title_value if isinstance(title_value, str) else "Experiment from Edison query"
+        hypothesis_value = hypothesis_result.get("hypothesis")
+        hypothesis = hypothesis_value if isinstance(hypothesis_value, str) else ""
+        null_hypothesis_value = hypothesis_result.get("null_hypothesis")
+        null_hypothesis = null_hypothesis_value if isinstance(null_hypothesis_value, str) else ""
+
+        materials_value = hypothesis_result.get("materials_needed")
+        materials: list[JsonObject] = []
+        if isinstance(materials_value, list):
+            for item in materials_value:
+                if isinstance(item, dict):
+                    materials.append(item)
+                elif isinstance(item, str):
+                    materials.append({"name": item})
+
+        params_value = hypothesis_result.get("experimental_parameters")
+        params: JsonObject = params_value if isinstance(params_value, dict) else {}
+
+        materials_payload: list[JsonValue] = list(materials)
+        intake: JsonObject = {
             "experiment_type": experiment_type,
-            "title": hypothesis_result.get("title", f"Experiment from Edison query"),
+            "title": title,
             "hypothesis": {
-                "statement": hypothesis_result.get("hypothesis", ""),
-                "null_hypothesis": hypothesis_result.get("null_hypothesis", ""),
+                "statement": hypothesis,
+                "null_hypothesis": null_hypothesis,
             },
             "compliance": {
                 "bsl": "BSL1",
@@ -360,7 +409,7 @@ class EdisonLitmusIntegration:
                 "technical": 3,
                 "biological": 1,
             },
-            "materials_provided": hypothesis_result.get("materials_needed", []),
+            "materials_provided": materials_payload,
             "metadata": {
                 "source": "edison_integration",
                 "original_query": original_query,
@@ -370,7 +419,6 @@ class EdisonLitmusIntegration:
         }
 
         # Add experiment-specific section
-        params = hypothesis_result.get("experimental_parameters", {})
         if experiment_type == "CUSTOM":
             intake["custom_protocol"] = {
                 "description": hypothesis_result.get("suggested_protocol", ""),
@@ -381,17 +429,31 @@ class EdisonLitmusIntegration:
 
         return intake
 
-    def _check_hazardous(self, result: dict) -> bool:
+    def _check_hazardous(self, result: JsonObject) -> bool:
         """Check if materials include hazardous chemicals."""
-        materials = result.get("materials_needed", [])
+        materials_value = result.get("materials_needed")
+        materials = materials_value if isinstance(materials_value, list) else []
         hazardous_keywords = [
-            "acid", "base", "toxic", "corrosive", "flammable",
-            "oxidizer", "carcinogen", "mutagen", "teratogen",
-            "chromium", "cyanide", "azide",
+            "acid",
+            "base",
+            "toxic",
+            "corrosive",
+            "flammable",
+            "oxidizer",
+            "carcinogen",
+            "mutagen",
+            "teratogen",
+            "chromium",
+            "cyanide",
+            "azide",
         ]
         for material in materials:
-            name = str(material.get("name", "")).lower()
-            notes = str(material.get("notes", "")).lower()
+            if not isinstance(material, dict):
+                continue
+            name_value = material.get("name")
+            notes_value = material.get("notes")
+            name = str(name_value or "").lower()
+            notes = str(notes_value or "").lower()
             if any(kw in name or kw in notes for kw in hazardous_keywords):
                 return True
         return False

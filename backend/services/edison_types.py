@@ -4,9 +4,12 @@ Shared Edison types for internal client and API responses.
 
 from pydantic import BaseModel, Field
 
+from backend.types import JsonObject
+
 
 class EdisonPlanStep(BaseModel):
     """A step in Edison's execution plan."""
+
     id: int
     objective: str
     rationale: str
@@ -17,6 +20,7 @@ class EdisonPlanStep(BaseModel):
 
 class EdisonPaperResult(BaseModel):
     """A paper found during literature search."""
+
     doc_id: str
     title: str
     authors: list[str] = Field(default_factory=list)
@@ -30,6 +34,7 @@ class EdisonPaperResult(BaseModel):
 
 class EdisonEvidence(BaseModel):
     """Evidence gathered from a paper."""
+
     doc_id: str
     context: str
     summary: str | None = None
@@ -38,6 +43,7 @@ class EdisonEvidence(BaseModel):
 
 class EdisonReasoningTrace(BaseModel):
     """Full reasoning trace from Edison's execution."""
+
     current_step: str = "INITIALIZED"
     steps_completed: list[str] = Field(default_factory=list)
     plan: list[EdisonPlanStep] = Field(default_factory=list)
@@ -52,12 +58,13 @@ class EdisonReasoningTrace(BaseModel):
 
 class EdisonTaskResponse(BaseModel):
     """Response from an Edison task."""
+
     task_id: str
     success: bool
     status: str = "unknown"
     answer: str | None = None
     formatted_answer: str | None = None
     has_successful_answer: bool = False
-    metadata: dict[str, object] = Field(default_factory=dict)
+    metadata: JsonObject = Field(default_factory=dict)
     error: str | None = None
     reasoning_trace: EdisonReasoningTrace | None = None
