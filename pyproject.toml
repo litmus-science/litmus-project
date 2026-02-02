@@ -21,7 +21,10 @@ dev = [
     "mypy>=1.0",
     "ruff>=0.1",
     "jsonschema>=4.0",
+    "types-jsonschema",
     "httpx>=0.26.0",
+    "types-passlib",
+    "types-python-jose",
 ]
 mcp = [
     "mcp>=1.0.0",

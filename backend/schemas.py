@@ -2,17 +2,16 @@
 Pydantic schemas for API request/response models.
 """
 
-from datetime import datetime, date
-from typing import Optional, List, Dict, Any, Union
-from pydantic import BaseModel, Field, EmailStr, field_validator
+from datetime import date, datetime
 from enum import Enum
 
-from backend.services.experiment_types import EXPERIMENT_TYPE_FIELD_MAP
-from backend.models import HypothesisStatus
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
-# JSON type for arbitrary JSON data (opaque blobs not requiring deep validation)
-# Using object as the value type allows nested structures without recursive type issues
-JsonDict = Dict[str, object]
+from backend.models import HypothesisStatus
+from backend.services.experiment_types import EXPERIMENT_TYPE_FIELD_MAP
+from backend.types import JsonObject
+
+JsonDict = JsonObject
 
 _ALLOWED_EXPERIMENT_TYPES = set(EXPERIMENT_TYPE_FIELD_MAP.keys())
 
@@ -91,19 +90,19 @@ class TokenData(BaseModel):
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
-    name: Optional[str] = None
-    organization: Optional[str] = None
+    name: str | None = None
+    organization: str | None = None
 
 
 class UserResponse(BaseModel):
     id: str
     email: str
-    name: Optional[str]
-    organization: Optional[str]
+    name: str | None
+    organization: str | None
     role: str
     rate_limit_tier: str
     created_at: datetime
-    api_key: Optional[str] = None
+    api_key: str | None = None
 
     class Config:
         from_attributes = True
@@ -112,31 +111,32 @@ class UserResponse(BaseModel):
 # Experiment schemas
 class ExperimentRequest(BaseModel):
     """Full experiment specification (matches experiment_intake.json schema)."""
+
     # Required fields
     experiment_type: str
-    title: Optional[str] = None
-    hypothesis: Optional[Dict[str, Any]] = None
-    compliance: Optional[Dict[str, Any]] = None
-    turnaround_budget: Optional[Dict[str, Any]] = None
-    deliverables: Optional[Dict[str, Any]] = None
+    title: str | None = None
+    hypothesis: JsonObject | None = None
+    compliance: JsonObject | None = None
+    turnaround_budget: JsonObject | None = None
+    deliverables: JsonObject | None = None
 
     # Optional common fields
-    metadata: Optional[Dict[str, Any]] = None
-    privacy: Optional[str] = "open"
-    materials_provided: Optional[List[Dict[str, Any]]] = None
-    replicates: Optional[Dict[str, Any]] = None
-    acceptance_criteria: Optional[Dict[str, Any]] = None
-    communication_preferences: Optional[Dict[str, Any]] = None
+    metadata: JsonObject | None = None
+    privacy: str | None = "open"
+    materials_provided: list[JsonObject] | None = None
+    replicates: JsonObject | None = None
+    acceptance_criteria: JsonObject | None = None
+    communication_preferences: JsonObject | None = None
 
     # Experiment-type specific sections (names match JSON schema exactly)
-    sanger: Optional[Dict[str, Any]] = None
-    qpcr: Optional[Dict[str, Any]] = None
-    cell_viability: Optional[Dict[str, Any]] = None
-    enzyme_inhibition: Optional[Dict[str, Any]] = None
-    microbial_growth: Optional[Dict[str, Any]] = None
-    mic_mbc: Optional[Dict[str, Any]] = None
-    zone_of_inhibition: Optional[Dict[str, Any]] = None
-    custom_protocol: Optional[Dict[str, Any]] = None
+    sanger: JsonObject | None = None
+    qpcr: JsonObject | None = None
+    cell_viability: JsonObject | None = None
+    enzyme_inhibition: JsonObject | None = None
+    microbial_growth: JsonObject | None = None
+    mic_mbc: JsonObject | None = None
+    zone_of_inhibition: JsonObject | None = None
+    custom_protocol: JsonObject | None = None
 
 
 class ExperimentLinks(BaseModel):
@@ -149,8 +149,8 @@ class ExperimentCreatedResponse(BaseModel):
     experiment_id: str
     status: ExperimentStatus
     created_at: datetime
-    estimated_cost_usd: Optional[float] = None
-    estimated_turnaround_days: Optional[int] = None
+    estimated_cost_usd: float | None = None
+    estimated_turnaround_days: int | None = None
     links: ExperimentLinks
 
 
@@ -161,8 +161,8 @@ class OperatorInfo(BaseModel):
 
 
 class CostInfo(BaseModel):
-    estimated_usd: Optional[float] = None
-    final_usd: Optional[float] = None
+    estimated_usd: float | None = None
+    final_usd: float | None = None
     payment_status: PaymentStatus
 
 
@@ -171,10 +171,10 @@ class Experiment(BaseModel):
     status: ExperimentStatus
     created_at: datetime
     updated_at: datetime
-    claimed_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    specification: Dict[str, Any]
-    operator: Optional[OperatorInfo] = None
+    claimed_at: datetime | None = None
+    completed_at: datetime | None = None
+    specification: JsonObject
+    operator: OperatorInfo | None = None
     cost: CostInfo
 
     class Config:
@@ -183,25 +183,26 @@ class Experiment(BaseModel):
 
 class ExperimentUpdate(BaseModel):
     """Allowed updates to an experiment."""
-    constraints: Optional[Dict[str, Any]] = None
-    communication_preferences: Optional[Dict[str, Any]] = None
+
+    constraints: JsonObject | None = None
+    communication_preferences: JsonObject | None = None
 
 
 class Pagination(BaseModel):
     total: int
-    cursor: Optional[str] = None
+    cursor: str | None = None
     has_more: bool
 
 
 class ExperimentListResponse(BaseModel):
-    experiments: List[Experiment]
+    experiments: list[Experiment]
     pagination: Pagination
 
 
 class CancelResponse(BaseModel):
     experiment_id: str
     status: str = "cancelled"
-    refund_amount_usd: Optional[float] = None
+    refund_amount_usd: float | None = None
     refund_status: str
 
 
@@ -209,56 +210,56 @@ class CancelResponse(BaseModel):
 class Measurement(BaseModel):
     metric: str
     value: float
-    unit: Optional[str] = None
-    condition: Optional[str] = None
-    replicate: Optional[int] = None
+    unit: str | None = None
+    condition: str | None = None
+    replicate: int | None = None
 
 
 class Statistics(BaseModel):
-    test_used: Optional[str] = None
-    p_value: Optional[float] = None
-    effect_size: Optional[float] = None
-    confidence_interval: Optional[Dict[str, float]] = None
+    test_used: str | None = None
+    p_value: float | None = None
+    effect_size: float | None = None
+    confidence_interval: dict[str, float] | None = None
 
 
 class StructuredData(BaseModel):
-    measurements: List[Measurement] = []
-    statistics: Optional[Statistics] = None
+    measurements: list[Measurement] = Field(default_factory=list)
+    statistics: Statistics | None = None
 
 
 class RawDataFile(BaseModel):
     name: str
-    format: Optional[str] = None
+    format: str | None = None
     url: str
-    checksum_sha256: Optional[str] = None
+    checksum_sha256: str | None = None
 
 
 class Photo(BaseModel):
     step: int
     url: str
-    timestamp: Optional[datetime] = None
+    timestamp: datetime | None = None
 
 
 class Documentation(BaseModel):
-    photos: List[Photo] = []
-    lab_notebook_url: Optional[str] = None
+    photos: list[Photo] = []
+    lab_notebook_url: str | None = None
 
 
 class ExperimentResults(BaseModel):
     experiment_id: str
     status: ExperimentStatus
-    hypothesis_supported: Optional[bool] = None
-    confidence_level: Optional[ConfidenceLevel] = None
-    summary: Optional[str] = None
-    structured_data: Optional[StructuredData] = None
-    raw_data_files: List[RawDataFile] = []
-    documentation: Optional[Documentation] = None
-    operator_notes: Optional[str] = None
+    hypothesis_supported: bool | None = None
+    confidence_level: ConfidenceLevel | None = None
+    summary: str | None = None
+    structured_data: StructuredData | None = None
+    raw_data_files: list[RawDataFile] = []
+    documentation: Documentation | None = None
+    operator_notes: str | None = None
 
 
 class ApproveRequest(BaseModel):
-    rating: Optional[int] = Field(None, ge=1, le=5)
-    feedback: Optional[str] = Field(None, max_length=2000)
+    rating: int | None = Field(None, ge=1, le=5)
+    feedback: str | None = Field(None, max_length=2000)
 
 
 class ApproveResponse(BaseModel):
@@ -270,7 +271,7 @@ class ApproveResponse(BaseModel):
 class DisputeRequest(BaseModel):
     reason: DisputeReason
     description: str = Field(..., min_length=50, max_length=5000)
-    evidence_urls: Optional[List[str]] = None
+    evidence_urls: list[str] | None = None
 
 
 class DisputeResponse(BaseModel):
@@ -284,21 +285,21 @@ class ValidationError(BaseModel):
     path: str
     code: str
     message: str
-    suggestion: Optional[str] = None
+    suggestion: str | None = None
 
 
 class ValidationResult(BaseModel):
     valid: bool
-    errors: List[ValidationError] = []
-    warnings: List[ValidationError] = []
-    safety_flags: List[str] = []
+    errors: list[ValidationError] = []
+    warnings: list[ValidationError] = []
+    safety_flags: list[str] = []
 
 
 class HypothesisSection(BaseModel):
     statement: str
     null_hypothesis: str
-    rationale: Optional[str] = None
-    variables: Optional[Dict[str, Any]] = None
+    rationale: str | None = None
+    variables: JsonObject | None = None
 
 
 # Estimate schemas
@@ -310,7 +311,7 @@ class CostRange(BaseModel):
 
 class TurnaroundEstimate(BaseModel):
     standard: int
-    expedited: Optional[int] = None
+    expedited: int | None = None
 
 
 class CostBreakdown(BaseModel):
@@ -333,37 +334,37 @@ class TemplateParameter(BaseModel):
     name: str
     type: str
     required: bool = False
-    default: Optional[str] = None
-    description: Optional[str] = None
-    constraints: Optional[Dict[str, Any]] = None
+    default: str | None = None
+    description: str | None = None
+    constraints: JsonObject | None = None
 
 
 class TemplateListItem(BaseModel):
     id: str
     name: str
-    description: Optional[str] = None
-    category: str
-    bsl_level: str
-    estimated_cost_range: Optional[str] = None
+    description: str | None = None
+    category: str | None = None
+    bsl_level: str | None = None
+    estimated_cost_range: str | None = None
 
 
 class Template(BaseModel):
     id: str
     name: str
-    description: Optional[str] = None
-    category: str
-    bsl_level: str
-    version: str
-    parameters: List[TemplateParameter] = []
-    equipment_required: List[str] = []
-    typical_materials: List[Dict[str, str]] = []
-    estimated_duration_hours: Optional[float] = None
-    estimated_cost_usd: Optional[Dict[str, float]] = None
-    protocol_steps: List[Dict[str, Any]] = []
+    description: str | None = None
+    category: str | None = None
+    bsl_level: str | None = None
+    version: str | None = None
+    parameters: list[TemplateParameter] = Field(default_factory=list)
+    equipment_required: list[str] = Field(default_factory=list)
+    typical_materials: list[dict[str, str]] = Field(default_factory=list)
+    estimated_duration_hours: float | None = None
+    estimated_cost_usd: dict[str, float] | None = None
+    protocol_steps: list[JsonObject] = Field(default_factory=list)
 
 
 class TemplateListResponse(BaseModel):
-    templates: List[TemplateListItem]
+    templates: list[TemplateListItem]
 
 
 # Operator schemas
@@ -372,21 +373,21 @@ class JobListItem(BaseModel):
     title: str
     category: str
     budget_usd: float
-    deadline: Optional[date] = None
+    deadline: date | None = None
     bsl_level: str
-    equipment_required: List[str] = []
+    equipment_required: list[str] = []
     posted_at: datetime
 
 
 class JobListResponse(BaseModel):
-    jobs: List[JobListItem]
+    jobs: list[JobListItem]
 
 
 class ClaimRequest(BaseModel):
     equipment_confirmation: bool
     authorization_confirmation: bool
     estimated_start_date: date
-    notes: Optional[str] = Field(None, max_length=1000)
+    notes: str | None = Field(None, max_length=1000)
 
 
 class ClaimResponse(BaseModel):
@@ -398,30 +399,30 @@ class ClaimResponse(BaseModel):
 class PhotoSubmission(BaseModel):
     step: int
     image_base64: str
-    timestamp: Optional[datetime] = None
-    caption: Optional[str] = None
+    timestamp: datetime | None = None
+    caption: str | None = None
 
 
 class DocumentationSubmission(BaseModel):
-    photos: List[PhotoSubmission]
-    lab_notebook_base64: Optional[str] = None
+    photos: list[PhotoSubmission]
+    lab_notebook_base64: str | None = None
 
 
 class RawDataUpload(BaseModel):
     name: str
-    format: Optional[str] = None
+    format: str | None = None
     content_base64: str
 
 
 class ResultSubmission(BaseModel):
     hypothesis_supported: bool
-    confidence_level: Optional[ConfidenceLevel] = None
-    summary: Optional[str] = Field(None, max_length=5000)
-    measurements: List[Measurement]
-    statistics: Optional[Statistics] = None
-    raw_data_uploads: Optional[List[RawDataUpload]] = None
+    confidence_level: ConfidenceLevel | None = None
+    summary: str | None = Field(None, max_length=5000)
+    measurements: list[Measurement]
+    statistics: Statistics | None = None
+    raw_data_uploads: list[RawDataUpload] | None = None
     documentation: DocumentationSubmission
-    notes: Optional[str] = Field(None, max_length=5000)
+    notes: str | None = Field(None, max_length=5000)
 
 
 class SubmitResultsResponse(BaseModel):
@@ -438,15 +439,15 @@ class WebhookTestRequest(BaseModel):
 
 class WebhookTestResponse(BaseModel):
     success: bool
-    response_code: Optional[int] = None
-    response_time_ms: Optional[int] = None
+    response_code: int | None = None
+    response_time_ms: int | None = None
 
 
 # Error schemas
 class ErrorDetail(BaseModel):
     code: str
     message: str
-    details: Optional[Dict[str, Any]] = None
+    details: JsonObject | None = None
 
 
 class ErrorResponse(BaseModel):
@@ -456,7 +457,7 @@ class ErrorResponse(BaseModel):
 class ValidationErrorDetail(BaseModel):
     code: str = "validation_failed"
     message: str
-    validation_errors: List[ValidationError]
+    validation_errors: list[ValidationError]
 
 
 class ValidationErrorResponse(BaseModel):
@@ -466,9 +467,9 @@ class ValidationErrorResponse(BaseModel):
 class SafetyRejectionDetail(BaseModel):
     code: str = "safety_rejected"
     message: str
-    flags: List[str]
+    flags: list[str]
     appeal_available: bool = True
-    appeal_url: Optional[str] = None
+    appeal_url: str | None = None
 
 
 class SafetyRejectionResponse(BaseModel):
@@ -479,12 +480,12 @@ class SafetyRejectionResponse(BaseModel):
 class HypothesisCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=500)
     statement: str = Field(..., min_length=1, max_length=2000)
-    null_hypothesis: Optional[str] = Field(None, max_length=2000)
+    null_hypothesis: str | None = Field(None, max_length=2000)
     experiment_type: str
-    edison_agent: Optional[str] = None
-    edison_query: Optional[str] = None
-    edison_response: Optional[JsonDict] = None
-    intake_draft: Optional[JsonDict] = None
+    edison_agent: str | None = None
+    edison_query: str | None = None
+    edison_response: JsonDict | None = None
+    intake_draft: JsonDict | None = None
 
     @field_validator("experiment_type")
     @classmethod
@@ -493,18 +494,18 @@ class HypothesisCreate(BaseModel):
 
 
 class HypothesisUpdate(BaseModel):
-    title: Optional[str] = Field(None, min_length=1, max_length=500)
-    statement: Optional[str] = Field(None, min_length=1, max_length=2000)
-    null_hypothesis: Optional[str] = Field(None, max_length=2000)
-    experiment_type: Optional[str] = None
-    edison_agent: Optional[str] = None
-    edison_query: Optional[str] = None
-    edison_response: Optional[JsonDict] = None
-    intake_draft: Optional[JsonDict] = None
+    title: str | None = Field(None, min_length=1, max_length=500)
+    statement: str | None = Field(None, min_length=1, max_length=2000)
+    null_hypothesis: str | None = Field(None, max_length=2000)
+    experiment_type: str | None = None
+    edison_agent: str | None = None
+    edison_query: str | None = None
+    edison_response: JsonDict | None = None
+    intake_draft: JsonDict | None = None
 
     @field_validator("experiment_type")
     @classmethod
-    def validate_experiment_type(cls, value: Optional[str]) -> Optional[str]:
+    def validate_experiment_type(cls, value: str | None) -> str | None:
         if value is None:
             return value
         return _validate_experiment_type(value)
@@ -515,13 +516,13 @@ class HypothesisResponse(BaseModel):
     user_id: str
     title: str
     statement: str
-    null_hypothesis: Optional[str]
-    experiment_type: str
+    null_hypothesis: str | None
+    experiment_type: str | None
     status: HypothesisStatus
-    edison_agent: Optional[str]
-    edison_query: Optional[str]
-    edison_response: Optional[JsonDict]
-    intake_draft: Optional[JsonDict]
+    edison_agent: str | None
+    edison_query: str | None
+    edison_response: JsonDict | None
+    intake_draft: JsonDict | None
     experiments_count: int = 0
     created_at: datetime
     updated_at: datetime
@@ -533,7 +534,7 @@ class HypothesisListItem(BaseModel):
     id: str
     title: str
     statement: str
-    experiment_type: str
+    experiment_type: str | None
     status: HypothesisStatus
     created_at: datetime
 
@@ -541,12 +542,12 @@ class HypothesisListItem(BaseModel):
 
 
 class HypothesisListResponse(BaseModel):
-    hypotheses: List[HypothesisListItem]
+    hypotheses: list[HypothesisListItem]
     pagination: Pagination
 
 
 class HypothesisToExperimentRequest(BaseModel):
-    budget_max_usd: Optional[float] = Field(None, gt=0)
-    bsl_level: Optional[BSLLevel] = None
-    privacy: Optional[str] = Field(None, pattern="^(open|private)$")
-    title_override: Optional[str] = Field(None, min_length=1, max_length=500)
+    budget_max_usd: float | None = Field(None, gt=0)
+    bsl_level: BSLLevel | None = None
+    privacy: str | None = Field(None, pattern="^(open|private)$")
+    title_override: str | None = Field(None, min_length=1, max_length=500)
