@@ -2465,7 +2465,7 @@ async def create_hypothesis(
 
 @app.get("/hypotheses", response_model=schemas.HypothesisListResponse, tags=["Hypotheses"])
 async def list_hypotheses(
-    status: str | None = None,
+    status: DBHypothesisStatus | None = None,
     experiment_type: str | None = None,
     limit: int = Query(20, ge=1, le=100),
     cursor: str | None = None,
@@ -2476,7 +2476,7 @@ async def list_hypotheses(
     filters = [HypothesisModel.user_id == current_user.id]
 
     if status:
-        filters.append(HypothesisModel.status == DBHypothesisStatus(status))
+        filters.append(HypothesisModel.status == status)
     else:
         filters.append(HypothesisModel.status != DBHypothesisStatus.ARCHIVED)
     if experiment_type:

@@ -108,7 +108,7 @@ HYPOTHESIS_GENERATION_PROMPT = (
     '  "confidence": 0.85,\n'
     '  "suggestions": ["..."],\n'
     '  "warnings": ["..."]\n'
-    "}\n"
+    "}}\n"
     "```\n"
 )
 
