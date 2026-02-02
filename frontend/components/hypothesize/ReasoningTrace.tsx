@@ -3,50 +3,6 @@
 import { useMemo } from "react";
 import type { EdisonReasoningTrace, EdisonPaperResult, EdisonEvidence, EdisonPlanStep } from "@/lib/types";
 
-const EXECUTION_STEPS = [
-  { id: "INITIALIZED", label: "1. INITIALIZED" },
-  { id: "CREATE_PLAN", label: "2. CREATE PLAN" },
-  { id: "PAPER_SEARCH", label: "3. PAPER SEARCH" },
-  { id: "UPDATE_PLAN", label: "4. UPDATE PLAN" },
-  { id: "GATHER_EVIDENCE", label: "5. GATHER EVIDENCE" },
-  { id: "CREATE_ARTIFACT", label: "6. CREATE ARTIFACT" },
-  { id: "COMPLETE", label: "7. COMPLETE" },
-];
-
-interface StepIndicatorProps {
-  steps: typeof EXECUTION_STEPS;
-  currentStep: string;
-  stepsCompleted: string[];
-}
-
-function StepIndicator({ steps, currentStep, stepsCompleted }: StepIndicatorProps) {
-  return (
-    <div className="flex flex-wrap gap-2 mb-6">
-      {steps.map((step) => {
-        const isCompleted = stepsCompleted.includes(step.id);
-        const isCurrent = step.id === currentStep;
-
-        return (
-          <div
-            key={step.id}
-            className={`
-              px-3 py-1.5 text-xs font-mono rounded-full border transition-all
-              ${isCompleted
-                ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                : isCurrent
-                ? "bg-accent-50 text-accent-700 border-accent-300 animate-pulse"
-                : "bg-surface-50 text-surface-400 border-surface-200"
-              }
-            `}
-          >
-            {step.label}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 interface PlanTableProps {
   plan: EdisonPlanStep[];
 }
@@ -58,7 +14,7 @@ function PlanTable({ plan }: PlanTableProps) {
     <div className="mb-6">
       <h3 className="text-sm font-medium text-surface-700 mb-3">Execution Plan</h3>
       <div className="overflow-x-auto border border-surface-200 rounded-lg">
-        <table className="min-w-full divide-y divide-surface-200">
+        <table className="min-w-full divide-y divide-surface-200" aria-label="Edison execution plan steps">
           <thead className="bg-surface-50">
             <tr>
               <th className="px-3 py-2 text-left text-xs font-medium text-surface-500 uppercase tracking-wider">ID</th>
@@ -73,7 +29,7 @@ function PlanTable({ plan }: PlanTableProps) {
               <tr key={step.id} className="hover:bg-surface-50">
                 <td className="px-3 py-2 text-xs font-mono text-surface-500">{step.id}</td>
                 <td className="px-3 py-2 text-sm text-surface-800">{step.objective}</td>
-                <td className="px-3 py-2 text-sm text-surface-600 max-w-xs truncate">{step.rationale}</td>
+                <td className="px-3 py-2 text-sm text-surface-600 max-w-xs truncate" title={step.rationale}>{step.rationale}</td>
                 <td className="px-3 py-2">
                   <span className={`
                     inline-flex items-center px-2 py-0.5 text-xs font-mono rounded
@@ -87,7 +43,7 @@ function PlanTable({ plan }: PlanTableProps) {
                     {step.status}
                   </span>
                 </td>
-                <td className="px-3 py-2 text-sm text-surface-600 max-w-xs truncate">
+                <td className="px-3 py-2 text-sm text-surface-600 max-w-xs truncate" title={step.result || ""}>
                   {step.result || "-"}
                 </td>
               </tr>
@@ -108,7 +64,13 @@ function PaperCard({ paper }: PaperCardProps) {
     <div className="border border-surface-200 rounded-lg p-4 hover:border-surface-300 transition-colors">
       <div className="flex items-start justify-between gap-2">
         <h4 className="text-sm font-medium text-surface-800 line-clamp-2 flex-1">
-          {paper.title}
+          {paper.url ? (
+            <a href={paper.url} target="_blank" rel="noopener noreferrer" className="hover:text-accent-600 hover:underline">
+              {paper.title}
+            </a>
+          ) : (
+            paper.title
+          )}
         </h4>
         {paper.is_peer_reviewed && (
           <span className="shrink-0 inline-flex items-center px-2 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-700 rounded">
@@ -209,59 +171,20 @@ function EvidenceList({ evidence }: EvidenceListProps) {
   );
 }
 
-interface StatusCountersProps {
-  paperCount: number;
-  relevantPapers: number;
-  evidenceCount: number;
-  currentCost?: number;
-}
-
-function StatusCounters({ paperCount, relevantPapers, evidenceCount, currentCost }: StatusCountersProps) {
-  return (
-    <div className="flex flex-wrap gap-4 mb-6 p-4 bg-surface-50 rounded-lg border border-surface-200">
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-surface-500 uppercase tracking-wider">Paper Count</span>
-        <span className="text-sm font-semibold text-surface-800">{paperCount}</span>
-      </div>
-      <div className="w-px h-6 bg-surface-300" />
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-surface-500 uppercase tracking-wider">Relevant Papers</span>
-        <span className="text-sm font-semibold text-surface-800">{relevantPapers}</span>
-      </div>
-      <div className="w-px h-6 bg-surface-300" />
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-surface-500 uppercase tracking-wider">Current Evidence</span>
-        <span className="text-sm font-semibold text-surface-800">{evidenceCount}</span>
-      </div>
-      {currentCost != null && (
-        <>
-          <div className="w-px h-6 bg-surface-300" />
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-surface-500 uppercase tracking-wider">Current Cost</span>
-            <span className="text-sm font-semibold text-surface-800">${currentCost.toFixed(4)}</span>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 export interface ReasoningTraceProps {
   trace: EdisonReasoningTrace | null | undefined;
   isLoading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
 }
 
-export function ReasoningTrace({ trace, isLoading = false }: ReasoningTraceProps) {
-  const currentStep = trace?.current_step || "INITIALIZED";
-  const stepsCompleted = trace?.steps_completed || [];
-
+export function ReasoningTrace({ trace, isLoading = false, error, onRetry }: ReasoningTraceProps) {
   const hasContent = useMemo(() => {
     if (!trace) return false;
     return (
       trace.plan.length > 0 ||
       trace.papers.length > 0 ||
-      trace.evidence.length > 0 ||
-      trace.paper_count > 0
+      trace.evidence.length > 0
     );
   }, [trace]);
 
@@ -295,21 +218,38 @@ export function ReasoningTrace({ trace, isLoading = false }: ReasoningTraceProps
         )}
       </div>
 
-      <StepIndicator
-        steps={EXECUTION_STEPS}
-        currentStep={currentStep}
-        stepsCompleted={stepsCompleted}
-      />
+      {error && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <svg
+              className="h-5 w-5 text-red-500 shrink-0 mt-0.5"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path
+                fillRule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                clipRule="evenodd"
+              />
+            </svg>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-medium text-red-800 mb-1">Analysis Failed</h3>
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="shrink-0 px-3 py-1.5 text-sm font-medium text-red-700 bg-white border border-red-300 rounded-md hover:bg-red-50 transition-colors"
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {trace && (
         <>
-          <StatusCounters
-            paperCount={trace.paper_count}
-            relevantPapers={trace.relevant_papers}
-            evidenceCount={trace.evidence_count}
-            currentCost={trace.current_cost}
-          />
-
           <PlanTable plan={trace.plan} />
 
           <PapersGrid papers={trace.papers} />

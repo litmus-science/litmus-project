@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, Suspense, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
-import { generateHypothesis, createExperiment, estimateCost, getHypothesis, ApiError, type RateLimitInfo } from "@/lib/api";
+import { startEdisonRun, getEdisonRunStatus, getActiveEdisonRun, listEdisonRuns, updateEdisonRunDraft, clearEdisonHistory, createExperiment, estimateCost, getHypothesis, ApiError, type RateLimitInfo } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatUsd } from "@/lib/format";
 import type {
@@ -11,9 +11,12 @@ import type {
   EdisonTranslateResponse,
   EdisonIntake,
   EdisonTranslationResult,
+  EdisonReasoningTrace,
+  EdisonRunSummary,
   HypothesisResponse,
   HypothesisListItem,
 } from "@/lib/types";
+import { ReasoningTrace } from "@/components/hypothesize/ReasoningTrace";
 import { SaveHypothesisButton } from "@/components/SaveHypothesisButton";
 import { RecentHypotheses } from "@/components/RecentHypotheses";
 import { MIN_HYPOTHESIS_LENGTH } from "@/lib/hypothesisValidation";
@@ -119,12 +122,9 @@ const sidebarItems = [
   },
 ];
 
-const processingSteps = ["Querying Edison...", "Analyzing results...", "Generating hypothesis..."];
 const chatHistoryLimit = 20;
-const edisonResponseStorageKey = "hypothesize-edison-response";
-const edisonEditsStorageKey = "hypothesize-edison-edits";
-const edisonIntakeIdStorageKey = "hypothesize-intake-id";
 const edisonEditsPersistDelayMs = 300;
+const edisonRunPollIntervalMs = 3000;
 
 interface UploadedFile {
   file: File;
@@ -165,6 +165,7 @@ const buildFallbackEdisonResponse = (hypothesis: HypothesisResponse): EdisonTran
   };
 };
 
+
 function HypothesizePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -176,12 +177,14 @@ function HypothesizePageContent() {
 
   // Flow state
   const [flowState, setFlowState] = useState<FlowState>("INITIAL");
-  const [processingStep, setProcessingStep] = useState(0);
 
   // Data state
   const [selectedAgent, setSelectedAgent] = useState<EdisonJobType>("literature");
   const [query, setQuery] = useState("");
   const [edisonResponse, setEdisonResponse] = useState<EdisonTranslateResponse | null>(null);
+  const [edisonRunId, setEdisonRunId] = useState<string | null>(null);
+  const [edisonRunInfo, setEdisonRunInfo] = useState<EdisonRunSummary | null>(null);
+  const [reasoningTrace, setReasoningTrace] = useState<EdisonReasoningTrace | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [rateLimitInfo, setRateLimitInfo] = useState<RateLimitInfo | null>(null);
@@ -237,10 +240,9 @@ function HypothesizePageContent() {
         setError("");
         const hypothesis = await getHypothesis(continueId);
 
-        // Reconstruct EdisonTranslateResponse if we have edison data
+        // Reconstruct EdisonTranslateResponse if we have valid Edison data
         if (hypothesis.edison_response && hypothesis.intake_draft) {
-          const response = hypothesis.edison_response as unknown as EdisonTranslateResponse;
-          setEdisonResponse(response);
+          setEdisonResponse(hypothesis.edison_response);
           setEditedHypothesis(hypothesis.statement);
           setEditedNullHypothesis(hypothesis.null_hypothesis || "");
           setFlowState("HYPOTHESIS_REVIEW");
@@ -263,106 +265,262 @@ function HypothesizePageContent() {
     loadHypothesis();
   }, [searchParams]);
 
-  // Load chat history from localStorage
+  // Load chat history from server
   useEffect(() => {
-    const saved = localStorage.getItem("hypothesize-history");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setChatHistory(parsed.map((s: ChatSession) => ({ ...s, timestamp: new Date(s.timestamp) })));
-    }
-  }, []);
-
-  // Load saved Edison response
-  useEffect(() => {
-    const savedResponse = localStorage.getItem(edisonResponseStorageKey);
-    if (!savedResponse) return;
-    const parsed = JSON.parse(savedResponse) as EdisonTranslateResponse;
-    setEdisonResponse(parsed);
-
-    const savedEdits = localStorage.getItem(edisonEditsStorageKey);
-    if (savedEdits) {
-      const edits = JSON.parse(savedEdits) as { hypothesis: string; nullHypothesis: string };
-      setEditedHypothesis(edits.hypothesis);
-      setEditedNullHypothesis(edits.nullHypothesis);
-    } else {
-      setEditedHypothesis(parsed.intake.hypothesis.statement || "");
-      setEditedNullHypothesis(parsed.intake.hypothesis.null_hypothesis || "");
-    }
-
-    const savedIntakeId = localStorage.getItem(edisonIntakeIdStorageKey);
-    if (savedIntakeId) {
-      setIntakeId(savedIntakeId);
-    }
-
-    setFlowState("HYPOTHESIS_REVIEW");
-  }, []);
-
-  // Persist Edison response
-  useEffect(() => {
-    if (edisonResponse) {
-      localStorage.setItem(edisonResponseStorageKey, JSON.stringify(edisonResponse));
+    const continueId = searchParams.get("continue");
+    if (continueId) {
       return;
     }
-    localStorage.removeItem(edisonResponseStorageKey);
-  }, [edisonResponse]);
 
-  // Persist edits with debounce
+    let cancelled = false;
+
+    listEdisonRuns({ status: "completed", limit: chatHistoryLimit })
+      .then((response) => {
+        if (cancelled) return;
+        setChatHistory(
+          response.runs.map((run) => ({
+            id: run.run_id,
+            query: run.query.substring(0, 100) + (run.query.length > 100 ? "..." : ""),
+            agent: run.job_type,
+            timestamp: new Date(run.started_at),
+            experimentType: run.experiment_type,
+          }))
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setChatHistory([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
+
+  // Load active Edison run from server (SSOT), fall back to latest completed run
   useEffect(() => {
-    if (!edisonResponse) {
-      localStorage.removeItem(edisonEditsStorageKey);
-      localStorage.removeItem(edisonIntakeIdStorageKey);
+    const continueId = searchParams.get("continue");
+    if (continueId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadFromServer = async () => {
+      const activeRun = await getActiveEdisonRun();
+      if (cancelled) return;
+      if (activeRun) {
+        setEdisonRunId(activeRun.run_id);
+        setEdisonRunInfo(activeRun);
+        setQuery(activeRun.query);
+        setSelectedAgent(activeRun.job_type);
+        if (activeRun.draft?.hypothesis !== undefined) {
+          setEditedHypothesis(activeRun.draft.hypothesis ?? "");
+        }
+        if (activeRun.draft?.null_hypothesis !== undefined) {
+          setEditedNullHypothesis(activeRun.draft.null_hypothesis ?? "");
+        }
+        if (activeRun.draft?.intake_id !== undefined) {
+          setIntakeId(activeRun.draft.intake_id ?? null);
+        }
+        setFlowState("PROCESSING");
+        return;
+      }
+
+      const listResponse = await listEdisonRuns({ status: "completed", limit: 1 });
+      if (cancelled) return;
+      const latest = listResponse.runs[0];
+      if (!latest) return;
+
+      setEdisonRunId(latest.run_id);
+      setEdisonRunInfo(latest);
+      setQuery(latest.query);
+      setSelectedAgent(latest.job_type);
+
+      const statusResponse = await getEdisonRunStatus(latest.run_id);
+      if (cancelled) return;
+      if (statusResponse.result) {
+        setEdisonResponse(statusResponse.result);
+        setEditedHypothesis(
+          statusResponse.draft?.hypothesis ?? statusResponse.result.intake.hypothesis.statement ?? ""
+        );
+        setEditedNullHypothesis(
+          statusResponse.draft?.null_hypothesis ?? statusResponse.result.intake.hypothesis.null_hypothesis ?? ""
+        );
+        setIntakeId(statusResponse.draft?.intake_id ?? null);
+        setFlowState("HYPOTHESIS_REVIEW");
+      }
+    };
+
+    loadFromServer().catch((err) => {
+      if (cancelled) return;
+      setError(err instanceof Error ? err.message : "Failed to load Edison history");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
+
+  // Persist edits with debounce (server)
+  useEffect(() => {
+    if (!edisonResponse || !edisonRunId) {
       return;
     }
 
     const timeoutId = setTimeout(() => {
-      localStorage.setItem(
-        edisonEditsStorageKey,
-        JSON.stringify({
-          hypothesis: editedHypothesis,
-          nullHypothesis: editedNullHypothesis,
-        })
-      );
-      if (intakeId) {
-        localStorage.setItem(edisonIntakeIdStorageKey, intakeId);
-      } else {
-        localStorage.removeItem(edisonIntakeIdStorageKey);
-      }
+      updateEdisonRunDraft(edisonRunId, {
+        hypothesis: editedHypothesis,
+        null_hypothesis: editedNullHypothesis,
+        intake_id: intakeId ?? undefined,
+      }).catch((err) => {
+        if (err instanceof ApiError) {
+          setRateLimitInfo(err.rateLimit ?? null);
+        }
+        setError(err instanceof Error ? err.message : "Failed to save edits");
+      });
     }, edisonEditsPersistDelayMs);
 
     return () => clearTimeout(timeoutId);
-  }, [edisonResponse, editedHypothesis, editedNullHypothesis, intakeId]);
+  }, [edisonResponse, edisonRunId, editedHypothesis, editedNullHypothesis, intakeId]);
 
   // Update cost estimate when we have experiment type
   useEffect(() => {
-    if (edisonResponse?.experiment_type) {
-      setEstimateLoading(true);
+    if (!edisonResponse?.experiment_type) {
+      setEstimate(null);
       setEstimateError(null);
-      setRateLimitInfo(null);
-      estimateCost({ experiment_type: edisonResponse.experiment_type })
-        .then((data) => setEstimate(data.estimated_cost_usd))
+      return;
+    }
+
+    const controller = new AbortController();
+    setEstimateLoading(true);
+    setEstimateError(null);
+    setRateLimitInfo(null);
+
+    estimateCost(
+      { experiment_type: edisonResponse.experiment_type },
+      { signal: controller.signal }
+    )
+      .then((data) => setEstimate(data.estimated_cost_usd))
+      .catch((err) => {
+        if (err instanceof Error && err.name === "AbortError") {
+          return;
+        }
+        setEstimate(null);
+        setEstimateError(err instanceof Error ? err.message : "Failed to estimate cost");
+        if (err instanceof ApiError) {
+          setRateLimitInfo(err.rateLimit ?? null);
+        }
+      })
+      .finally(() => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setEstimateLoading(false);
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [edisonResponse?.experiment_type]);
+
+
+  const addChatHistorySession = useCallback((session: ChatSession) => {
+    setChatHistory(prev => {
+      const updatedHistory = [session, ...prev].slice(0, chatHistoryLimit);
+      return updatedHistory;
+    });
+  }, []);
+
+
+  // Poll Edison run status while processing
+  useEffect(() => {
+    if (!edisonRunId || flowState !== "PROCESSING") return;
+
+    let cancelled = false;
+    let pollTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const pollStatus = () => {
+      getEdisonRunStatus(edisonRunId)
+        .then((status) => {
+          if (cancelled) return;
+          // Update reasoning trace if available
+          if (status.reasoning_trace) {
+            setReasoningTrace(status.reasoning_trace);
+          }
+
+          if (status.status === "completed") {
+            if (!status.result) {
+              setError("Edison run completed without a result");
+              setFlowState("INITIAL");
+              setEdisonRunInfo(null);
+              setReasoningTrace(null);
+              return;
+            }
+
+            setEdisonResponse(status.result);
+
+            const intake = status.result.intake;
+            setEditedHypothesis(
+              status.draft?.hypothesis ?? intake.hypothesis.statement ?? ""
+            );
+            setEditedNullHypothesis(
+              status.draft?.null_hypothesis ?? intake.hypothesis.null_hypothesis ?? ""
+            );
+            setIntakeId(status.draft?.intake_id ?? null);
+
+            if (edisonRunInfo) {
+              const newSession: ChatSession = {
+                id: edisonRunId,
+                query: edisonRunInfo.query.substring(0, 100) + (edisonRunInfo.query.length > 100 ? "..." : ""),
+                agent: edisonRunInfo.job_type,
+                timestamp: new Date(edisonRunInfo.started_at),
+                experimentType: status.result.experiment_type,
+              };
+              addChatHistorySession(newSession);
+            }
+
+            setFlowState("HYPOTHESIS_REVIEW");
+            setEdisonRunInfo(null);
+            setReasoningTrace(null);
+            return;
+          }
+
+          if (status.status === "failed") {
+            setError(status.error || "Edison run failed");
+            setFlowState("INITIAL");
+            setEdisonRunId(null);
+            setEdisonRunInfo(null);
+            setReasoningTrace(null);
+            return;
+          }
+
+          if (!cancelled) {
+            pollTimeoutId = setTimeout(pollStatus, edisonRunPollIntervalMs);
+          }
+        })
         .catch((err) => {
-          setEstimate(null);
-          setEstimateError(err instanceof Error ? err.message : "Failed to estimate cost");
+          if (cancelled) return;
           if (err instanceof ApiError) {
             setRateLimitInfo(err.rateLimit ?? null);
           }
-        })
-        .finally(() => setEstimateLoading(false));
-      return;
-    }
-    setEstimate(null);
-    setEstimateError(null);
-  }, [edisonResponse?.experiment_type]);
+          setError(err instanceof Error ? err.message : "Failed to fetch Edison status");
+          setFlowState("INITIAL");
+          setEdisonRunId(null);
+          setEdisonRunInfo(null);
+          setReasoningTrace(null);
+        });
+    };
 
-  // Processing animation
-  useEffect(() => {
-    if (flowState === "PROCESSING") {
-      const interval = setInterval(() => {
-        setProcessingStep((prev) => (prev + 1) % processingSteps.length);
-      }, 2000);
-      return () => clearInterval(interval);
-    }
-  }, [flowState]);
+    pollStatus();
+
+    return () => {
+      cancelled = true;
+      if (pollTimeoutId !== null) {
+        clearTimeout(pollTimeoutId);
+      }
+    };
+  }, [edisonRunId, edisonRunInfo, addChatHistorySession, flowState]);
 
   // File drag and drop handlers
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -413,56 +571,53 @@ function HypothesizePageContent() {
   }, []);
 
   const clearHistory = useCallback(() => {
-    setChatHistory([]);
-    localStorage.removeItem("hypothesize-history");
+    clearEdisonHistory()
+      .then((result) => {
+        if (result.success) {
+          setChatHistory([]);
+        }
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to clear history");
+      });
   }, []);
 
   const handleGenerate = useCallback(async () => {
-    if (!query.trim()) {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
       setError("Please enter a research query");
       return;
     }
 
     setError("");
     setRateLimitInfo(null);
+    setEdisonRunId(null);
+    setEdisonRunInfo(null);
     setFlowState("PROCESSING");
-    setProcessingStep(0);
+    setEdisonResponse(null);
+    setEditedHypothesis("");
+    setEditedNullHypothesis("");
+    setIntakeId(null);
+    setEstimate(null);
+    setEstimateError(null);
+    setReasoningTrace(null);
 
     try {
-      const result = await generateHypothesis({
-        query: query,
+      const result = await startEdisonRun({
+        query: trimmedQuery,
         job_type: selectedAgent,
         files: uploadedFiles.map((file) => file.file),
       });
 
-      if (!result.success) {
-        setError(result.error || "Failed to generate hypothesis");
-        setFlowState("INITIAL");
-        return;
-      }
-
-      setEdisonResponse(result);
-
-      // Save to chat history
-      const newSession: ChatSession = {
-        id: Date.now().toString(),
-        query: query.substring(0, 100) + (query.length > 100 ? "..." : ""),
-        agent: selectedAgent,
-        timestamp: new Date(),
-        experimentType: result.experiment_type,
-      };
-      setChatHistory(prev => {
-        const updatedHistory = [newSession, ...prev].slice(0, chatHistoryLimit);
-        localStorage.setItem("hypothesize-history", JSON.stringify(updatedHistory));
-        return updatedHistory;
+      setEdisonRunId(result.run_id);
+      setIntakeId(result.intake_id);
+      setEdisonRunInfo({
+        run_id: result.run_id,
+        status: result.status,
+        query: trimmedQuery,
+        job_type: selectedAgent,
+        started_at: new Date().toISOString(),
       });
-
-      // Extract hypothesis from intake
-      const intake = result.intake;
-      setEditedHypothesis(intake.hypothesis.statement || "");
-      setEditedNullHypothesis(intake.hypothesis.null_hypothesis || "");
-
-      setFlowState("HYPOTHESIS_REVIEW");
     } catch (err) {
       if (err instanceof ApiError) {
         setRateLimitInfo(err.rateLimit ?? null);
@@ -488,8 +643,6 @@ function HypothesizePageContent() {
     const compliance = intake.compliance;
     const turnaround = intake.turnaround_budget;
     const metadata = intake.metadata;
-    setIntakeId((prev) => prev ?? crypto.randomUUID());
-
     experimentForm.reset({
       title,
       hypothesis_statement: editedHypothesis,
@@ -512,10 +665,6 @@ function HypothesizePageContent() {
 
     try {
       const intake: EdisonIntake = edisonResponse.intake;
-      const idempotencyKey = intakeId ?? crypto.randomUUID();
-      if (!intakeId) {
-        setIntakeId(idempotencyKey);
-      }
       const privacy = data.privacy === "confidential" ? "private" : data.privacy;
       const deliverables = intake.deliverables ?? {
         minimum_package_level: "L1_BASIC_QC",
@@ -543,7 +692,7 @@ function HypothesizePageContent() {
           ...intake.metadata,
           notes: data.notes,
           edison_generated: true,
-          intake_id: idempotencyKey,
+          ...(intakeId ? { intake_id: intakeId } : {}),
         },
       };
 
@@ -571,10 +720,9 @@ function HypothesizePageContent() {
     setQuery("");
     setUploadedFiles([]);
     setIntakeId(null);
+    setEdisonRunId(null);
+    setEdisonRunInfo(null);
     experimentForm.reset();
-    localStorage.removeItem(edisonResponseStorageKey);
-    localStorage.removeItem(edisonEditsStorageKey);
-    localStorage.removeItem(edisonIntakeIdStorageKey);
   }, [experimentForm]);
 
   const charCount = query.length;
@@ -978,20 +1126,40 @@ function HypothesizePageContent() {
             </div>
           )}
 
-          {/* PROCESSING: Loading State */}
+          {/* PROCESSING: Reasoning Trace / Loading State */}
           {flowState === "PROCESSING" && (
-            <div className="bg-surface-100 border border-surface-200 rounded-2xl p-8">
-              <div className="flex flex-col items-center justify-center py-16 space-y-6" role="status" aria-live="polite">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent"></div>
-                <p className="text-lg font-medium text-surface-700">
-                  {processingSteps[processingStep]}
-                </p>
-                <div className="w-full max-w-md space-y-3">
-                  <div className="h-4 bg-surface-200 animate-pulse rounded"></div>
-                  <div className="h-4 bg-surface-200 animate-pulse rounded w-3/4"></div>
-                  <div className="h-4 bg-surface-200 animate-pulse rounded w-1/2"></div>
+            <div className="space-y-4">
+              {/* Query summary */}
+              {edisonRunInfo && (
+                <div className="bg-surface-50 border border-surface-200 rounded-lg p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-shrink-0 text-accent-600">
+                      {agentCards.find(a => a.value === edisonRunInfo.job_type)?.icon}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-mono uppercase tracking-wider text-surface-500 mb-1">
+                        {agentCards.find(a => a.value === edisonRunInfo.job_type)?.label || edisonRunInfo.job_type}
+                      </p>
+                      <p className="text-sm text-surface-700 truncate">{edisonRunInfo.query}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFlowState("INITIAL");
+                        setEdisonRunId(null);
+                        setEdisonRunInfo(null);
+                        setReasoningTrace(null);
+                      }}
+                      className="text-xs text-surface-400 hover:text-surface-600"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Reasoning Trace component */}
+              <ReasoningTrace trace={reasoningTrace} isLoading={true} />
             </div>
           )}
 
@@ -1040,7 +1208,7 @@ function HypothesizePageContent() {
                     <textarea
                       value={editedNullHypothesis}
                       onChange={(e) => setEditedNullHypothesis(e.target.value)}
-                      rows={2}
+                      rows={3}
                       className="input"
                     />
                   </div>
@@ -1083,42 +1251,48 @@ function HypothesizePageContent() {
                   )}
                 </div>
 
-                <div className="flex flex-col gap-4 pt-6 mt-6 border-t border-surface-200">
-                  <div className="flex gap-4">
-                    <button
-                      type="button"
-                      onClick={handleStartOver}
-                      className="flex-1 btn-secondary"
-                    >
-                      Start Over
-                    </button>
-                    <SaveHypothesisButton
-                      hypothesis={{
-                        title: edisonResponse.intake?.title || "Untitled Hypothesis",
-                        statement: editedHypothesis,
-                        nullHypothesis: editedNullHypothesis,
-                        experimentType: edisonResponse.experiment_type,
-                      }}
-                      edisonContext={{
-                        agent: selectedAgent,
-                        query: query,
-                        response: edisonResponse as unknown as Record<string, unknown>,
-                        intakeDraft: edisonResponse.intake as unknown as Record<string, unknown>,
-                      }}
-                      onSaved={(id) => {
-                        console.log("Hypothesis saved with ID:", id);
-                      }}
-                      className="flex-1"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleProceedToExperiment}
-                      className="flex-1 btn-primary"
-                      disabled={editedHypothesis.trim().length < MIN_HYPOTHESIS_LENGTH}
-                    >
-                      Proceed to Experiment
-                    </button>
-                  </div>
+                <div className="flex items-center gap-3 pt-6 mt-6 border-t border-surface-200">
+                  <button
+                    type="button"
+                    onClick={handleStartOver}
+                    className="btn-secondary flex-1 flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+                    </svg>
+                    New Hypothesis
+                  </button>
+
+                  <SaveHypothesisButton
+                    hypothesis={{
+                      title: edisonResponse.intake?.title || "Untitled Hypothesis",
+                      statement: editedHypothesis,
+                      nullHypothesis: editedNullHypothesis,
+                      experimentType: edisonResponse.experiment_type,
+                    }}
+                    edisonContext={{
+                      agent: selectedAgent,
+                      query: query,
+                      response: edisonResponse,
+                      intakeDraft: edisonResponse.intake,
+                    }}
+                    onSaved={(id) => {
+                      console.log("Hypothesis saved with ID:", id);
+                    }}
+                    className="flex-1"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={handleProceedToExperiment}
+                    className="btn-primary flex-1 flex items-center justify-center gap-2"
+                    disabled={editedHypothesis.trim().length < MIN_HYPOTHESIS_LENGTH}
+                  >
+                    Proceed to Experiment
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                  </button>
                 </div>
               </div>
             </div>

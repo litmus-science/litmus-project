@@ -12,6 +12,14 @@ import type {
   SubmitResultsResponse,
   EdisonJobType,
   EdisonTranslateResponse,
+  EdisonRunStatus,
+  EdisonRunStartResponse,
+  EdisonRunStatusResponse,
+  EdisonRunSummary,
+  EdisonRunListResponse,
+  EdisonRunDraft,
+  EdisonRunDraftUpdate,
+  EdisonClearHistoryResponse,
   HypothesisCreate,
   HypothesisUpdate,
   HypothesisResponse,
@@ -376,6 +384,68 @@ export async function generateHypothesis(data: {
   return request<EdisonTranslateResponse>("/cloud-labs/edison", {
     method: "POST",
     body: JSON.stringify(data),
+  });
+}
+
+export async function startEdisonRun(data: {
+  query: string;
+  job_type: EdisonJobType;
+  context?: string;
+  files?: File[];
+}): Promise<EdisonRunStartResponse> {
+  if (data.files && data.files.length > 0) {
+    const formData = new FormData();
+    formData.append("query", data.query);
+    formData.append("job_type", data.job_type);
+    if (data.context) {
+      formData.append("context", data.context);
+    }
+    for (const file of data.files) {
+      formData.append("files", file);
+    }
+    return request<EdisonRunStartResponse>("/cloud-labs/edison/start", {
+      method: "POST",
+      body: formData,
+    });
+  }
+  return request<EdisonRunStartResponse>("/cloud-labs/edison/start", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getEdisonRunStatus(runId: string): Promise<EdisonRunStatusResponse> {
+  return request<EdisonRunStatusResponse>(`/cloud-labs/edison/status/${runId}`);
+}
+
+export async function getActiveEdisonRun(): Promise<EdisonRunSummary | null> {
+  return request<EdisonRunSummary | null>("/cloud-labs/edison/active");
+}
+
+export async function listEdisonRuns(params?: {
+  status?: EdisonRunStatus;
+  limit?: number;
+}): Promise<EdisonRunListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.limit) searchParams.set("limit", params.limit.toString());
+  const query = searchParams.toString();
+  return request<EdisonRunListResponse>(`/cloud-labs/edison/runs${query ? `?${query}` : ""}`);
+}
+
+export async function updateEdisonRunDraft(
+  runId: string,
+  data: EdisonRunDraftUpdate
+): Promise<EdisonRunDraft> {
+  return request<EdisonRunDraft>(`/cloud-labs/edison/runs/${runId}/draft`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function clearEdisonHistory(): Promise<EdisonClearHistoryResponse> {
+  return request<EdisonClearHistoryResponse>("/cloud-labs/edison/runs/clear-history", {
+    method: "POST",
   });
 }
 

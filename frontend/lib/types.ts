@@ -264,6 +264,97 @@ export interface EdisonTranslateResponse {
   error?: string;
 }
 
+export type EdisonRunStatus = "pending" | "running" | "completed" | "failed";
+
+// Edison Reasoning Trace types for streaming UI
+export interface EdisonPlanStep {
+  id: number;
+  objective: string;
+  rationale: string;
+  status: string;
+  result?: string;
+  evaluation?: string;
+}
+
+export interface EdisonPaperResult {
+  doc_id: string;
+  title: string;
+  authors: string[];
+  journal?: string;
+  year?: number;
+  citation_count?: number;
+  is_peer_reviewed: boolean;
+  relevance_score?: number;
+  url?: string;
+}
+
+export interface EdisonEvidence {
+  doc_id: string;
+  context: string;
+  summary?: string;
+  relevance?: number;
+}
+
+export interface EdisonReasoningTrace {
+  current_step: string;
+  steps_completed: string[];
+  plan: EdisonPlanStep[];
+  papers: EdisonPaperResult[];
+  evidence: EdisonEvidence[];
+  paper_count: number;
+  relevant_papers: number;
+  evidence_count: number;
+  current_cost?: number;
+  status_message?: string;
+}
+
+export interface EdisonRunStartResponse {
+  run_id: string;
+  status: EdisonRunStatus;
+  intake_id: string;
+}
+
+export interface EdisonRunStatusResponse {
+  run_id: string;
+  status: EdisonRunStatus;
+  result?: EdisonTranslateResponse;
+  error?: string;
+  reasoning_trace?: EdisonReasoningTrace;
+  draft?: EdisonRunDraft;
+}
+
+export interface EdisonRunSummary {
+  run_id: string;
+  status: EdisonRunStatus;
+  query: string;
+  job_type: EdisonJobType;
+  started_at: string;
+  reasoning_trace?: EdisonReasoningTrace;
+  experiment_type?: string;
+  draft?: EdisonRunDraft;
+}
+
+export interface EdisonRunDraft {
+  hypothesis?: string;
+  null_hypothesis?: string;
+  intake_id?: string;
+}
+
+export interface EdisonRunDraftUpdate {
+  hypothesis?: string;
+  null_hypothesis?: string;
+  intake_id?: string;
+}
+
+export interface EdisonRunListResponse {
+  runs: EdisonRunSummary[];
+}
+
+export interface EdisonClearHistoryResponse {
+  success: boolean;
+  cleared: number;
+}
+
 // Hypothesis types
 export interface HypothesisCreate {
   title: string;
@@ -272,8 +363,8 @@ export interface HypothesisCreate {
   experiment_type: string;
   edison_agent?: string;
   edison_query?: string;
-  edison_response?: Record<string, unknown>;
-  intake_draft?: Record<string, unknown>;
+  edison_response?: EdisonTranslateResponse;
+  intake_draft?: EdisonIntake;
 }
 
 export interface HypothesisUpdate {
@@ -281,7 +372,7 @@ export interface HypothesisUpdate {
   statement?: string;
   null_hypothesis?: string;
   experiment_type?: string;
-  intake_draft?: Record<string, unknown>;
+  intake_draft?: EdisonIntake;
 }
 
 export interface HypothesisResponse {
@@ -294,8 +385,8 @@ export interface HypothesisResponse {
   status: HypothesisStatus;
   edison_agent?: string;
   edison_query?: string;
-  edison_response?: Record<string, unknown>;
-  intake_draft?: Record<string, unknown>;
+  edison_response?: EdisonTranslateResponse;
+  intake_draft?: EdisonIntake;
   created_at: string;
   updated_at: string;
   experiments_count: number;

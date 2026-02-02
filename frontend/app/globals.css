@@ -45,7 +45,8 @@
 
   .btn-secondary {
     @apply bg-surface-100 text-surface-600 hover:bg-surface-200 px-6 py-3 text-sm font-medium transition-colors;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
   }
 
   .btn-accent {

@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { createHypothesis } from "@/lib/api";
 import { MIN_HYPOTHESIS_LENGTH } from "@/lib/hypothesisValidation";
+import type { EdisonIntake, EdisonTranslateResponse } from "@/lib/types";
 
 interface SaveHypothesisButtonProps {
   hypothesis: {
@@ -14,8 +15,8 @@ interface SaveHypothesisButtonProps {
   edisonContext?: {
     agent: string;
     query: string;
-    response: Record<string, unknown>;
-    intakeDraft: Record<string, unknown>;
+    response: EdisonTranslateResponse;
+    intakeDraft: EdisonIntake;
   };
   onSaved?: (id: string) => void;
   onError?: (error: Error) => void;
@@ -86,7 +87,7 @@ export function SaveHypothesisButton({
       type="button"
       onClick={handleSave}
       disabled={isDisabled}
-      className={`btn-secondary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${className}`}
+      className={`btn-secondary flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${className}`}
       aria-label={
         !isValid
           ? `Hypothesis must be at least ${MIN_HYPOTHESIS_LENGTH} characters`
