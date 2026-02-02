@@ -6,20 +6,53 @@ for hypothesis generation, literature search, and molecule analysis.
 """
 
 import os
-import asyncio
-import httpx
 from dataclasses import dataclass, field
-from typing import Any
 from enum import Enum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from edison_client import EdisonClient as EdisonPlatformClient
+    from edison_client.models.app import (
+        FinchTaskResponse,
+        LiteTaskResponse,
+        PhoenixTaskResponse,
+        PQATaskResponse,
+        TaskRequest,
+        TaskResponse,
+        TaskResponseVerbose,
+    )
 
 
 class EdisonJobType(str, Enum):
     """Edison Scientific job types mapped to actual job names."""
-    # Map to actual Edison job names from edison-client JobNames enum
-    LITERATURE = "job-futurehouse-paperqa3"
+    # Map to Edison job names from edison-client JobNames enum
+    LITERATURE = "job-futurehouse-paperqa2"
     MOLECULES = "job-futurehouse-phoenix"
     ANALYSIS = "job-futurehouse-data-analysis-crow-high"
     PRECEDENT = "job-futurehouse-paperqa3-precedent"
+
+
+_EDISON_JOB_ENV_VARS: dict[EdisonJobType, str] = {
+    EdisonJobType.LITERATURE: "EDISON_JOB_LITERATURE",
+    EdisonJobType.MOLECULES: "EDISON_JOB_MOLECULES",
+    EdisonJobType.ANALYSIS: "EDISON_JOB_ANALYSIS",
+    EdisonJobType.PRECEDENT: "EDISON_JOB_PRECEDENT",
+}
+
+
+def _job_name_override(job_type: EdisonJobType) -> str | None:
+    env_var = _EDISON_JOB_ENV_VARS[job_type]
+    value = os.environ.get(env_var)
+    if value:
+        return value.strip()
+    return None
+
+
+def _job_name_for(job_type: EdisonJobType | str) -> str:
+    if isinstance(job_type, EdisonJobType):
+        override = _job_name_override(job_type)
+        return override or job_type.value
+    return job_type
 
 
 @dataclass
@@ -31,7 +64,7 @@ class EdisonTaskResponse:
     answer: str | None = None
     formatted_answer: str | None = None
     has_successful_answer: bool = False
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, object] = field(default_factory=dict)
     error: str | None = None
 
 
@@ -40,76 +73,73 @@ class EdisonClient:
     Client for the Edison Scientific platform API.
 
     Edison provides AI-powered scientific research capabilities:
-    - LITERATURE: Query scientific sources with citations (PaperQA3)
+    - LITERATURE: Query scientific sources with citations (PaperQA)
     - MOLECULES: Chemistry tasks using cheminformatics tools (Phoenix)
     - ANALYSIS: Generate insights from biological datasets
     - PRECEDENT: Search for precedent work in literature
     """
 
-    # Edison platform API URL (from edison-client package Stage.PROD)
-    BASE_URL = os.environ.get("EDISON_API_URL", "https://api.platform.edisonscientific.com")
-
     def __init__(self, api_key: str | None = None):
-        self.api_key = api_key or os.environ.get("EDISON_API_KEY")
+        self.api_key = api_key or os.environ.get("EDISON_API_KEY") or os.environ.get(
+            "EDISON_PLATFORM_API_KEY"
+        )
         if not self.api_key:
-            raise ValueError("EDISON_API_KEY environment variable or api_key parameter is required")
-        self._client: httpx.AsyncClient | None = None
-        self._jwt_token: str | None = None
-
-    async def _authenticate(self) -> str:
-        """
-        Authenticate with Edison API to get a JWT token.
-
-        Edison uses API key to get a JWT via /auth/login endpoint.
-        """
-        async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=30.0) as client:
-            response = await client.post(
-                "/auth/login",
-                json={"api_key": self.api_key},
-                headers={"Content-Type": "application/json"},
+            raise ValueError(
+                "EDISON_API_KEY or EDISON_PLATFORM_API_KEY environment variable "
+                "or api_key parameter is required"
             )
-            response.raise_for_status()
-            data = response.json()
-            return data["access_token"]
+        from edison_client import EdisonClient as EdisonPlatformClient
 
-    @property
-    def client(self) -> httpx.AsyncClient:
-        if self._client is None:
-            self._client = httpx.AsyncClient(
-                base_url=self.BASE_URL,
-                headers={"Content-Type": "application/json"},
-                timeout=120.0,  # Edison tasks can take time
-            )
-        return self._client
+        self._client: "EdisonPlatformClient" = EdisonPlatformClient(api_key=self.api_key)
 
-    async def _ensure_authenticated(self):
-        """Ensure we have a valid JWT token."""
-        if self._jwt_token is None:
-            self._jwt_token = await self._authenticate()
-        # Update client headers with token
-        self.client.headers["Authorization"] = f"Bearer {self._jwt_token}"
+    def _build_task_request(
+        self,
+        query: str,
+        job_type: EdisonJobType | str,
+        runtime_config: dict | None,
+    ) -> "TaskRequest":
+        from edison_client.models.app import TaskRequest
 
-    async def _request_with_auth(self, method: str, url: str, **kwargs):
-        """Make an authenticated request, handling token refresh on 401."""
-        await self._ensure_authenticated()
+        job_name = _job_name_for(job_type)
+        if runtime_config:
+            return TaskRequest(name=job_name, query=query, runtime_config=runtime_config)
+        return TaskRequest(name=job_name, query=query)
 
-        response = await getattr(self.client, method)(url, **kwargs)
+    def _coerce_task_response(
+        self,
+        response: "TaskResponse | TaskResponseVerbose | LiteTaskResponse | PhoenixTaskResponse | PQATaskResponse | FinchTaskResponse",
+        task_id: str | None = None,
+    ) -> EdisonTaskResponse:
+        status = getattr(response, "status", "unknown")
+        answer = getattr(response, "answer", None)
+        formatted_answer = getattr(response, "formatted_answer", None)
+        has_successful_answer = bool(getattr(response, "has_successful_answer", False))
+        metadata = getattr(response, "metadata", None) or {}
+        response_task_id = (
+            getattr(response, "task_id", None)
+            or getattr(response, "trajectory_id", None)
+            or task_id
+            or ""
+        )
+        success = status.lower() == "success"
+        if not success and has_successful_answer:
+            success = True
 
-        # If unauthorized, try refreshing token once
-        if response.status_code in (401, 403):
-            self._jwt_token = await self._authenticate()
-            self.client.headers["Authorization"] = f"Bearer {self._jwt_token}"
-            response = await getattr(self.client, method)(url, **kwargs)
-
-        response.raise_for_status()
-        return response
+        return EdisonTaskResponse(
+            task_id=response_task_id,
+            success=success,
+            status=status,
+            answer=answer,
+            formatted_answer=formatted_answer,
+            has_successful_answer=has_successful_answer,
+            metadata=metadata,
+            error=getattr(response, "error", None),
+        )
 
     async def close(self):
         """Close the HTTP client."""
-        if self._client:
+        if hasattr(self._client, "aclose"):
             await self._client.aclose()
-            self._client = None
-        self._jwt_token = None
 
     async def create_task(
         self,
@@ -128,17 +158,8 @@ class EdisonClient:
         Returns:
             Trajectory ID for tracking
         """
-        payload = {
-            "name": job_type.value,  # Uses the actual job name like "job-futurehouse-phoenix"
-            "query": query,
-        }
-        if runtime_config:
-            payload["runtime_config"] = runtime_config
-
-        # Edison uses /v0.1/crows endpoint for task creation
-        response = await self._request_with_auth("post", "/v0.1/crows", json=payload)
-        data = response.json()
-        return data["trajectory_id"]
+        task = self._build_task_request(query, job_type, runtime_config)
+        return await self._client.acreate_task(task)
 
     async def get_task(self, task_id: str) -> EdisonTaskResponse:
         """
@@ -150,32 +171,8 @@ class EdisonClient:
         Returns:
             EdisonTaskResponse with results
         """
-        # Edison uses /v0.1/trajectories/{id} endpoint for status
-        response = await self._request_with_auth("get", f"/v0.1/trajectories/{task_id}")
-        data = response.json()
-
-        # Extract status
-        status = data.get("status", "unknown")
-
-        # Extract answer from environment_frame for PQA responses
-        env_frame = data.get("environment_frame") or {}
-        state = (env_frame.get("state") or {}).get("state") or {}
-        response_data = state.get("response") or {}
-        answer_data = response_data.get("answer") or {}
-
-        answer = answer_data.get("answer") or state.get("answer")
-        formatted_answer = answer_data.get("formatted_answer")
-        has_successful_answer = answer_data.get("has_successful_answer", False)
-
-        return EdisonTaskResponse(
-            task_id=task_id,
-            success=has_successful_answer,
-            status=status,
-            answer=answer,
-            formatted_answer=formatted_answer,
-            has_successful_answer=has_successful_answer,
-            metadata=data.get("metadata", {}),
-        )
+        response = await self._client.aget_task(task_id)
+        return self._coerce_task_response(response, task_id=task_id)
 
     async def run_task_until_done(
         self,
@@ -198,33 +195,24 @@ class EdisonClient:
         Returns:
             EdisonTaskResponse with results
         """
-        task_id = await self.create_task(query, job_type, runtime_config)
+        task_request = self._build_task_request(query, job_type, runtime_config)
+        _ = poll_interval
+        responses = await self._client.arun_tasks_until_done(
+            task_request,
+            timeout=max_wait,
+        )
 
-        elapsed = 0.0
-        while elapsed < max_wait:
-            result = await self.get_task(task_id)
-
-            # Check if task is complete (success, failed, or has answer)
-            # Edison returns "in progress" with space for running tasks
-            if result.status.lower() not in ("in progress", "pending", "queued", "running"):
-                return result
-            if result.has_successful_answer:
-                return result
-            if result.error:
-                return result
-
-            await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
-
+        if responses:
+            return self._coerce_task_response(responses[0])
         return EdisonTaskResponse(
-            task_id=task_id,
+            task_id="",
             success=False,
             status="timeout",
             error=f"Task timed out after {max_wait} seconds",
         )
 
     async def search_literature(self, query: str) -> EdisonTaskResponse:
-        """Search scientific literature with citations using PaperQA3."""
+        """Search scientific literature with citations using PaperQA."""
         return await self.run_task_until_done(query, EdisonJobType.LITERATURE)
 
     async def analyze_molecules(self, query: str) -> EdisonTaskResponse:
@@ -251,7 +239,6 @@ class MockEdisonClient(EdisonClient):
     def __init__(self, api_key: str | None = None):
         # Don't require API key for mock
         self.api_key = api_key or "mock_key"
-        self._client = None
         self._task_counter = 0
 
     async def create_task(
@@ -268,7 +255,7 @@ class MockEdisonClient(EdisonClient):
         return EdisonTaskResponse(
             task_id=task_id,
             success=True,
-            status="complete",
+            status="success",
             answer="This is a mock response from Edison Scientific.",
             formatted_answer="**Mock Response**\n\nThis is a simulated response for development.",
             has_successful_answer=True,
@@ -289,61 +276,20 @@ class MockEdisonClient(EdisonClient):
         job_type_name = job_type.name.lower()
 
         if job_type == EdisonJobType.LITERATURE:
-            answer = f"""Based on scientific literature search for: "{query}"
-
-Key findings:
-1. Multiple studies have investigated this topic
-2. The primary mechanism involves enzyme-substrate interactions
-3. Typical concentrations used range from 1-100 μM
-
-References:
-- Smith et al. (2023) Journal of Biological Chemistry
-- Johnson et al. (2024) Nature Methods
-"""
+            answer = f"""Based on scientific literature search for: \"{query}\"\n\nKey findings:\n1. Multiple studies have investigated this topic\n2. The primary mechanism involves enzyme-substrate interactions\n3. Typical concentrations used range from 1-100 μM\n\nReferences:\n- Smith et al. (2023) Journal of Biological Chemistry\n- Johnson et al. (2024) Nature Methods\n"""
         elif job_type == EdisonJobType.MOLECULES:
-            answer = f"""Molecular analysis for: "{query}"
-
-Compound Information:
-- Molecular weight: ~300 Da (estimated)
-- LogP: 2.5 (moderate lipophilicity)
-- Predicted solubility: Moderate in aqueous buffers
-
-Synthesis considerations:
-- Standard organic synthesis techniques applicable
-- No unusual safety concerns identified
-"""
+            answer = f"""Molecular analysis for: \"{query}\"\n\nCompound Information:\n- Molecular weight: ~300 Da (estimated)\n- LogP: 2.5 (moderate lipophilicity)\n- Predicted solubility: Moderate in aqueous buffers\n\nSynthesis considerations:\n- Standard organic synthesis techniques applicable\n- No unusual safety concerns identified\n"""
         elif job_type == EdisonJobType.ANALYSIS:
-            answer = f"""Data analysis insights for: "{query}"
-
-Statistical Summary:
-- The experimental design supports hypothesis testing
-- Recommended sample size: n=3 technical replicates
-- Expected effect size: Medium to large
-
-Recommended assays:
-- Primary: Fluorometric or colorimetric detection
-- Secondary: Dose-response curve fitting for IC50
-"""
+            answer = f"""Data analysis insights for: \"{query}\"\n\nStatistical Summary:\n- The experimental design supports hypothesis testing\n- Recommended sample size: n=3 technical replicates\n- Expected effect size: Medium to large\n\nRecommended assays:\n- Primary: Fluorometric or colorimetric detection\n- Secondary: Dose-response curve fitting for IC50\n"""
         elif job_type == EdisonJobType.PRECEDENT:
-            answer = f"""Precedent search for: "{query}"
-
-Similar experiments found:
-1. IC50 determination using standard protocols
-2. Enzyme inhibition assays with comparable compounds
-3. Published methodologies from reputable labs
-
-Recommended approach based on precedent:
-- Use established assay conditions
-- Include positive and negative controls
-- Plan for 8-12 concentration points for IC50
-"""
+            answer = f"""Precedent search for: \"{query}\"\n\nSimilar experiments found:\n1. IC50 determination using standard protocols\n2. Enzyme inhibition assays with comparable compounds\n3. Published methodologies from reputable labs\n\nRecommended approach based on precedent:\n- Use established assay conditions\n- Include positive and negative controls\n- Plan for 8-12 concentration points for IC50\n"""
         else:
             answer = f"Analysis complete for: {query}"
 
         return EdisonTaskResponse(
             task_id=task_id,
             success=True,
-            status="complete",
+            status="success",
             answer=answer,
             formatted_answer=f"**Edison {job_type_name.title()} Analysis**\n\n{answer}",
             has_successful_answer=True,
@@ -361,7 +307,7 @@ def get_edison_client(use_mock: bool | None = None) -> EdisonClient:
 
     Args:
         use_mock: Force mock client (True) or real client (False).
-                  If None, auto-detect based on EDISON_API_KEY availability.
+                  If None, auto-detect based on Edison API key availability.
 
     Returns:
         EdisonClient instance
@@ -371,7 +317,9 @@ def get_edison_client(use_mock: bool | None = None) -> EdisonClient:
     if _edison_client is None:
         if use_mock is None:
             # Auto-detect: use mock if no API key
-            use_mock = not os.environ.get("EDISON_API_KEY")
+            use_mock = not (
+                os.environ.get("EDISON_API_KEY") or os.environ.get("EDISON_PLATFORM_API_KEY")
+            )
 
         if use_mock:
             _edison_client = MockEdisonClient()
