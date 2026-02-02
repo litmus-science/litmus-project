@@ -5,10 +5,16 @@ These functions build the JSON structure for Autoprotocol instructions.
 See: https://autoprotocol.org/specification/
 """
 
-from typing import Any
+from collections.abc import Sequence
+from typing import TypeAlias
+
+from backend.types import JsonObject, JsonValue
+
+Instruction: TypeAlias = JsonObject
+WellVolume: TypeAlias = dict[str, str]
 
 
-def ref(container_type: str, storage: str | None = None, discard: bool = False) -> dict:
+def ref(container_type: str, storage: str | None = None, discard: bool = False) -> Instruction:
     """
     Create a container reference definition.
 
@@ -20,7 +26,7 @@ def ref(container_type: str, storage: str | None = None, discard: bool = False) 
     Returns:
         Dict for the refs section value
     """
-    ref_def = {"new": container_type}
+    ref_def: Instruction = {"new": container_type}
     if discard:
         ref_def["discard"] = True
     elif storage:
@@ -28,9 +34,11 @@ def ref(container_type: str, storage: str | None = None, discard: bool = False) 
     return ref_def
 
 
-def existing_ref(container_id: str, storage: str | None = None, discard: bool = False) -> dict:
+def existing_ref(
+    container_id: str, storage: str | None = None, discard: bool = False
+) -> Instruction:
     """Reference an existing container by ID."""
-    ref_def = {"id": container_id}
+    ref_def: Instruction = {"id": container_id}
     if discard:
         ref_def["discard"] = True
     elif storage:
@@ -38,24 +46,17 @@ def existing_ref(container_id: str, storage: str | None = None, discard: bool = 
     return ref_def
 
 
-def seal(container: str, seal_type: str = "foil") -> dict:
+def seal(container: str, seal_type: str = "foil") -> Instruction:
     """Seal a container."""
-    return {
-        "op": "seal",
-        "object": container,
-        "type": seal_type
-    }
+    return {"op": "seal", "object": container, "type": seal_type}
 
 
-def unseal(container: str) -> dict:
+def unseal(container: str) -> Instruction:
     """Unseal a container."""
-    return {
-        "op": "unseal",
-        "object": container
-    }
+    return {"op": "unseal", "object": container}
 
 
-def spin(container: str, acceleration: str, duration: str) -> dict:
+def spin(container: str, acceleration: str, duration: str) -> Instruction:
     """
     Centrifuge a container.
 
@@ -64,16 +65,16 @@ def spin(container: str, acceleration: str, duration: str) -> dict:
         acceleration: e.g., "1000:g"
         duration: e.g., "5:minute"
     """
-    return {
-        "op": "spin",
-        "object": container,
-        "acceleration": acceleration,
-        "duration": duration
-    }
+    return {"op": "spin", "object": container, "acceleration": acceleration, "duration": duration}
 
 
-def incubate(container: str, where: str, duration: str, shaking: bool = False,
-             co2_percent: float | None = None) -> dict:
+def incubate(
+    container: str,
+    where: str,
+    duration: str,
+    shaking: bool = False,
+    co2_percent: float | None = None,
+) -> Instruction:
     """
     Incubate a container.
 
@@ -84,20 +85,25 @@ def incubate(container: str, where: str, duration: str, shaking: bool = False,
         shaking: Whether to shake during incubation
         co2_percent: CO2 percentage for cell culture
     """
-    instr = {
+    instr: Instruction = {
         "op": "incubate",
         "object": container,
         "where": where,
         "duration": duration,
-        "shaking": shaking
+        "shaking": shaking,
     }
     if co2_percent is not None:
         instr["co2_percent"] = co2_percent
     return instr
 
 
-def thermocycle(container: str, groups: list[dict], lid_temperature: str | None = None,
-                volume: str | None = None, dataref: str | None = None) -> dict:
+def thermocycle(
+    container: str,
+    groups: Sequence[Instruction],
+    lid_temperature: str | None = None,
+    volume: str | None = None,
+    dataref: str | None = None,
+) -> Instruction:
     """
     Perform thermal cycling (PCR).
 
@@ -108,11 +114,8 @@ def thermocycle(container: str, groups: list[dict], lid_temperature: str | None 
         volume: Reaction volume, e.g., "20:microliter"
         dataref: Data reference name
     """
-    instr = {
-        "op": "thermocycle",
-        "object": container,
-        "groups": groups
-    }
+    groups_payload: list[JsonValue] = list(groups)
+    instr: Instruction = {"op": "thermocycle", "object": container, "groups": groups_payload}
     if lid_temperature:
         instr["lid_temperature"] = lid_temperature
     if volume:
@@ -122,20 +125,21 @@ def thermocycle(container: str, groups: list[dict], lid_temperature: str | None 
     return instr
 
 
-def thermocycle_step(temperature: str, duration: str, read: bool = False) -> dict:
+def thermocycle_step(temperature: str, duration: str, read: bool = False) -> Instruction:
     """Create a single thermocycle step."""
-    step = {"temperature": temperature, "duration": duration}
+    step: Instruction = {"temperature": temperature, "duration": duration}
     if read:
         step["read"] = True
     return step
 
 
-def thermocycle_group(cycles: int, steps: list[dict]) -> dict:
+def thermocycle_group(cycles: int, steps: Sequence[Instruction]) -> Instruction:
     """Create a thermocycle group (repeated cycles)."""
-    return {"cycles": cycles, "steps": steps}
+    steps_payload: list[JsonValue] = list(steps)
+    return {"cycles": cycles, "steps": steps_payload}
 
 
-def dispense(container: str, reagent: str, columns: list[dict]) -> dict:
+def dispense(container: str, reagent: str, columns: Sequence[Instruction]) -> Instruction:
     """
     Dispense reagent into a container.
 
@@ -144,16 +148,23 @@ def dispense(container: str, reagent: str, columns: list[dict]) -> dict:
         reagent: Reagent identifier
         columns: List of {"column": int, "volume": str}
     """
+    columns_payload: list[JsonValue] = list(columns)
     return {
         "op": "dispense",
         "object": container,
         "reagent": reagent,
-        "columns": columns
+        "columns": columns_payload,
     }
 
 
-def transfer(source: str, source_well: str, dest: str, dest_well: str,
-             volume: str, mix_after: dict | None = None) -> dict:
+def transfer(
+    source: str,
+    source_well: str,
+    dest: str,
+    dest_well: str,
+    volume: str,
+    mix_after: JsonObject | None = None,
+) -> Instruction:
     """
     Transfer liquid between wells.
 
@@ -165,31 +176,30 @@ def transfer(source: str, source_well: str, dest: str, dest_well: str,
         volume: Volume to transfer, e.g., "10:microliter"
         mix_after: Optional mixing parameters
     """
-    transfer_def = {
+    transfer_def: Instruction = {
         "from": f"{source}/{source_well}",
         "to": f"{dest}/{dest_well}",
-        "volume": volume
+        "volume": volume,
     }
     if mix_after:
         transfer_def["mix_after"] = mix_after
     return transfer_def
 
 
-def pipette(groups: list[dict]) -> dict:
+def pipette(groups: Sequence[Instruction]) -> Instruction:
     """
     General pipetting instruction with multiple transfers.
 
     Args:
         groups: List of transfer groups
     """
-    return {
-        "op": "pipette",
-        "groups": groups
-    }
+    groups_payload: list[JsonValue] = list(groups)
+    return {"op": "pipette", "groups": groups_payload}
 
 
-def absorbance(container: str, wells: list[str], wavelength: str, dataref: str,
-               num_flashes: int = 25) -> dict:
+def absorbance(
+    container: str, wells: Sequence[str], wavelength: str, dataref: str, num_flashes: int = 25
+) -> Instruction:
     """
     Measure absorbance.
 
@@ -200,18 +210,26 @@ def absorbance(container: str, wells: list[str], wavelength: str, dataref: str,
         dataref: Data reference name
         num_flashes: Number of flashes per read
     """
+    wells_payload: list[JsonValue] = list(wells)
     return {
         "op": "absorbance",
         "object": container,
-        "wells": wells,
+        "wells": wells_payload,
         "wavelength": wavelength,
         "num_flashes": num_flashes,
-        "dataref": dataref
+        "dataref": dataref,
     }
 
 
-def fluorescence(container: str, wells: list[str], excitation: str, emission: str,
-                 dataref: str, num_flashes: int = 25, gain: float | None = None) -> dict:
+def fluorescence(
+    container: str,
+    wells: Sequence[str],
+    excitation: str,
+    emission: str,
+    dataref: str,
+    num_flashes: int = 25,
+    gain: float | None = None,
+) -> Instruction:
     """
     Measure fluorescence.
 
@@ -222,22 +240,24 @@ def fluorescence(container: str, wells: list[str], excitation: str, emission: st
         emission: Emission wavelength, e.g., "535:nanometer"
         dataref: Data reference name
     """
-    instr = {
+    wells_payload: list[JsonValue] = list(wells)
+    instr: Instruction = {
         "op": "fluorescence",
         "object": container,
-        "wells": wells,
+        "wells": wells_payload,
         "excitation": excitation,
         "emission": emission,
         "num_flashes": num_flashes,
-        "dataref": dataref
+        "dataref": dataref,
     }
     if gain is not None:
         instr["gain"] = gain
     return instr
 
 
-def luminescence(container: str, wells: list[str], dataref: str,
-                 integration_time: str | None = None) -> dict:
+def luminescence(
+    container: str, wells: Sequence[str], dataref: str, integration_time: str | None = None
+) -> Instruction:
     """
     Measure luminescence.
 
@@ -247,19 +267,25 @@ def luminescence(container: str, wells: list[str], dataref: str,
         dataref: Data reference name
         integration_time: e.g., "1:second"
     """
-    instr = {
+    wells_payload: list[JsonValue] = list(wells)
+    instr: Instruction = {
         "op": "luminescence",
         "object": container,
-        "wells": wells,
-        "dataref": dataref
+        "wells": wells_payload,
+        "dataref": dataref,
     }
     if integration_time:
         instr["integration_time"] = integration_time
     return instr
 
 
-def sangerseq(container: str, wells: list[str], dataref: str,
-              primer: dict | None = None, type_: str = "standard") -> dict:
+def sangerseq(
+    container: str,
+    wells: Sequence[str],
+    dataref: str,
+    primer: JsonObject | None = None,
+    type_: str = "standard",
+) -> Instruction:
     """
     Perform Sanger sequencing.
 
@@ -270,20 +296,22 @@ def sangerseq(container: str, wells: list[str], dataref: str,
         primer: Primer container/well reference
         type_: Sequencing type ("standard" or "rca")
     """
-    instr = {
+    wells_payload: list[JsonValue] = list(wells)
+    instr: Instruction = {
         "op": "sanger_sequence",
         "object": container,
-        "wells": wells,
+        "wells": wells_payload,
         "dataref": dataref,
-        "type": type_
+        "type": type_,
     }
     if primer:
         instr["primer"] = primer
     return instr
 
 
-def image_plate(container: str, dataref: str, mode: str = "top",
-                magnification: float = 1.0) -> dict:
+def image_plate(
+    container: str, dataref: str, mode: str = "top", magnification: float = 1.0
+) -> Instruction:
     """
     Image a plate.
 
@@ -298,28 +326,21 @@ def image_plate(container: str, dataref: str, mode: str = "top",
         "object": container,
         "dataref": dataref,
         "mode": mode,
-        "magnification": magnification
+        "magnification": magnification,
     }
 
 
-def cover(container: str, lid: str = "standard") -> dict:
+def cover(container: str, lid: str = "standard") -> Instruction:
     """Cover a container with a lid."""
-    return {
-        "op": "cover",
-        "object": container,
-        "lid": lid
-    }
+    return {"op": "cover", "object": container, "lid": lid}
 
 
-def uncover(container: str) -> dict:
+def uncover(container: str) -> Instruction:
     """Remove lid from a container."""
-    return {
-        "op": "uncover",
-        "object": container
-    }
+    return {"op": "uncover", "object": container}
 
 
-def agitate(container: str, mode: str, duration: str, speed: str | None = None) -> dict:
+def agitate(container: str, mode: str, duration: str, speed: str | None = None) -> Instruction:
     """
     Agitate a container.
 
@@ -329,18 +350,13 @@ def agitate(container: str, mode: str, duration: str, speed: str | None = None) 
         duration: e.g., "30:second"
         speed: e.g., "500:rpm"
     """
-    instr = {
-        "op": "agitate",
-        "object": container,
-        "mode": mode,
-        "duration": duration
-    }
+    instr: Instruction = {"op": "agitate", "object": container, "mode": mode, "duration": duration}
     if speed:
         instr["speed"] = speed
     return instr
 
 
-def provision(container: str, wells: list[dict], resource_id: str) -> dict:
+def provision(container: str, wells: Sequence[WellVolume], resource_id: str) -> Instruction:
     """
     Provision a resource into wells.
 
@@ -349,14 +365,14 @@ def provision(container: str, wells: list[dict], resource_id: str) -> dict:
         wells: List of {"well": str, "volume": str}
         resource_id: ID of the resource to provision
     """
-    return {
-        "op": "provision",
-        "to": [{"well": f"{container}/{w['well']}", "volume": w["volume"]} for w in wells],
-        "resource_id": resource_id
-    }
+    to_payload: list[JsonValue] = [
+        {"well": f"{container}/{w['well']}", "volume": w["volume"]} for w in wells
+    ]
+    return {"op": "provision", "to": to_payload, "resource_id": resource_id}
 
 
 # Helper functions for building well lists
+
 
 def well_range(start_col: int, end_col: int, rows: str = "ABCDEFGH") -> list[str]:
     """Generate a list of wells from start to end column across all rows."""
