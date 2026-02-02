@@ -60,6 +60,13 @@ class HypothesisStatus(str, PyEnum):
     ARCHIVED = "archived"
 
 
+class EdisonRunStatus(str, PyEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class User(Base):
     """User accounts (both requesters and operators)."""
     __tablename__ = "users"
@@ -155,6 +162,34 @@ class Hypothesis(Base):
     # Relationships
     user = relationship("User", back_populates="hypotheses")
     experiments = relationship("Experiment", back_populates="source_hypothesis")
+
+
+class EdisonRun(Base):
+    """Persisted Edison task runs to allow resume after refresh."""
+    __tablename__ = "edison_runs"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+
+    query = Column(Text, nullable=False)
+    job_type = Column(String, nullable=False)
+    task_id = Column(String, nullable=False, index=True)
+    status = Column(Enum(EdisonRunStatus), default=EdisonRunStatus.PENDING, index=True)
+
+    experiment_type = Column(String)
+
+    additional_context = Column(Text)
+    result = Column(JSON)
+    error = Column(Text)
+    edited_hypothesis = Column(Text)
+    edited_null_hypothesis = Column(Text)
+    intake_id = Column(String)
+    is_hidden = Column(Boolean, default=False, index=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User")
 
 
 class Experiment(Base):

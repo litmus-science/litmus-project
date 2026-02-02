@@ -6,7 +6,6 @@ for hypothesis generation, literature search, and molecule analysis.
 """
 
 import os
-from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -23,49 +22,28 @@ if TYPE_CHECKING:
     )
 
 
+from backend.services.edison_types import (
+    EdisonPlanStep,
+    EdisonPaperResult,
+    EdisonEvidence,
+    EdisonReasoningTrace,
+    EdisonTaskResponse,
+)
+
+
 class EdisonJobType(str, Enum):
     """Edison Scientific job types mapped to actual job names."""
     # Map to Edison job names from edison-client JobNames enum
-    LITERATURE = "job-futurehouse-paperqa2"
+    LITERATURE = "job-futurehouse-paperqa3"
     MOLECULES = "job-futurehouse-phoenix"
     ANALYSIS = "job-futurehouse-data-analysis-crow-high"
     PRECEDENT = "job-futurehouse-paperqa3-precedent"
 
 
-_EDISON_JOB_ENV_VARS: dict[EdisonJobType, str] = {
-    EdisonJobType.LITERATURE: "EDISON_JOB_LITERATURE",
-    EdisonJobType.MOLECULES: "EDISON_JOB_MOLECULES",
-    EdisonJobType.ANALYSIS: "EDISON_JOB_ANALYSIS",
-    EdisonJobType.PRECEDENT: "EDISON_JOB_PRECEDENT",
-}
-
-
-def _job_name_override(job_type: EdisonJobType) -> str | None:
-    env_var = _EDISON_JOB_ENV_VARS[job_type]
-    value = os.environ.get(env_var)
-    if value:
-        return value.strip()
-    return None
-
-
 def _job_name_for(job_type: EdisonJobType | str) -> str:
     if isinstance(job_type, EdisonJobType):
-        override = _job_name_override(job_type)
-        return override or job_type.value
+        return job_type.value
     return job_type
-
-
-@dataclass
-class EdisonTaskResponse:
-    """Response from an Edison task."""
-    task_id: str
-    success: bool
-    status: str = "unknown"
-    answer: str | None = None
-    formatted_answer: str | None = None
-    has_successful_answer: bool = False
-    metadata: dict[str, object] = field(default_factory=dict)
-    error: str | None = None
 
 
 class EdisonClient:
@@ -105,6 +83,142 @@ class EdisonClient:
             return TaskRequest(name=job_name, query=query, runtime_config=runtime_config)
         return TaskRequest(name=job_name, query=query)
 
+    def _parse_reasoning_trace(
+        self,
+        environment_frame: dict | None,
+        status: str,
+    ) -> EdisonReasoningTrace | None:
+        """Parse environment_frame from verbose response into reasoning trace."""
+        import re
+
+        trace = EdisonReasoningTrace()
+
+        # Parse status string for counters
+        # Format: "Status: Paper Count=X | Relevant Papers=Y | Current Evidence=Z | Current Cost=$..."
+        status_match = re.search(
+            r"Paper Count=(\d+).*Relevant Papers=(\d+).*Current Evidence=(\d+)",
+            status,
+        )
+        if status_match:
+            trace.paper_count = int(status_match.group(1))
+            trace.relevant_papers = int(status_match.group(2))
+            trace.evidence_count = int(status_match.group(3))
+
+        cost_match = re.search(r"Current Cost=\$?([\d.]+)", status)
+        if cost_match:
+            trace.current_cost = float(cost_match.group(1))
+
+        trace.status_message = status
+
+        if not environment_frame:
+            return trace
+
+        # Extract state from environment_frame
+        state = environment_frame.get("state", {})
+        if isinstance(state, dict):
+            state = state.get("state", state)
+
+        # Determine current step from status
+        status_lower = status.lower()
+        if "success" in status_lower or "complete" in status_lower:
+            trace.current_step = "COMPLETE"
+            trace.steps_completed = [
+                "INITIALIZED", "CREATE_PLAN", "PAPER_SEARCH",
+                "UPDATE_PLAN", "GATHER_EVIDENCE", "CREATE_ARTIFACT", "COMPLETE"
+            ]
+        elif "evidence" in status_lower:
+            trace.current_step = "GATHER_EVIDENCE"
+            trace.steps_completed = ["INITIALIZED", "CREATE_PLAN", "PAPER_SEARCH", "UPDATE_PLAN"]
+        elif "paper" in status_lower or "search" in status_lower:
+            trace.current_step = "PAPER_SEARCH"
+            trace.steps_completed = ["INITIALIZED", "CREATE_PLAN"]
+        elif "plan" in status_lower:
+            trace.current_step = "CREATE_PLAN"
+            trace.steps_completed = ["INITIALIZED"]
+        else:
+            trace.current_step = "INITIALIZED"
+
+        # Extract papers from docs/session
+        docs = state.get("docs", {})
+        if isinstance(docs, dict):
+            docs_list = docs.get("docs", [])
+            if isinstance(docs_list, list):
+                for doc in docs_list[:20]:  # Limit to 20 papers
+                    if isinstance(doc, dict):
+                        source_quality_value = doc.get("source_quality", 0)
+                        if not isinstance(source_quality_value, (int, float)):
+                            source_quality_value = 0
+                        trace.papers.append(EdisonPaperResult(
+                            doc_id=str(doc.get("doc_id", doc.get("dockey", ""))),
+                            title=doc.get("title", doc.get("docname", "Unknown")),
+                            authors=doc.get("authors", []) or [],
+                            journal=doc.get("journal"),
+                            year=doc.get("year"),
+                            citation_count=doc.get("citation_count"),
+                            is_peer_reviewed=source_quality_value >= 1,
+                            relevance_score=doc.get("relevance_score"),
+                            url=doc.get("url"),
+                        ))
+
+        # Extract evidence/contexts from session
+        session = state.get("session", {})
+        if isinstance(session, dict):
+            contexts = session.get("contexts", [])
+            if isinstance(contexts, list):
+                for ctx in contexts[:10]:  # Limit to 10 evidence items
+                    if isinstance(ctx, dict):
+                        trace.evidence.append(EdisonEvidence(
+                            doc_id=str(ctx.get("text", {}).get("doc", {}).get("doc_id", "")),
+                            context=ctx.get("context", ""),
+                            summary=ctx.get("summary"),
+                            relevance=ctx.get("score"),
+                        ))
+
+            # Extract tool history as plan steps
+            tool_history = session.get("tool_history", [])
+            if isinstance(tool_history, list):
+                step_id = 1
+                for step_tools in tool_history:
+                    if isinstance(step_tools, list):
+                        for tool_name in step_tools:
+                            trace.plan.append(EdisonPlanStep(
+                                id=step_id,
+                                objective=tool_name.replace("_", " ").title(),
+                                rationale=f"Step {step_id} of agent execution",
+                                status="completed",
+                            ))
+                            step_id += 1
+
+        return trace
+
+    def _extract_answer_from_environment_frame(
+        self,
+        environment_frame: dict | None,
+    ) -> tuple[str | None, str | None, bool | None]:
+        if not environment_frame or not isinstance(environment_frame, dict):
+            return None, None, None
+
+        state = environment_frame.get("state", {})
+        if isinstance(state, dict):
+            state = state.get("state", state)
+        if not isinstance(state, dict):
+            return None, None, None
+
+        response = state.get("response", {})
+        if isinstance(response, dict):
+            answer_payload = response.get("answer", {})
+            if isinstance(answer_payload, dict):
+                return (
+                    answer_payload.get("answer"),
+                    answer_payload.get("formatted_answer"),
+                    answer_payload.get("has_successful_answer"),
+                )
+
+        answer_value = state.get("answer")
+        if isinstance(answer_value, str):
+            return answer_value, None, None
+        return None, None, None
+
     def _coerce_task_response(
         self,
         response: "TaskResponse | TaskResponseVerbose | LiteTaskResponse | PhoenixTaskResponse | PQATaskResponse | FinchTaskResponse",
@@ -121,12 +235,25 @@ class EdisonClient:
             or task_id
             or ""
         )
-        success = status.lower() == "success"
-        if not success and has_successful_answer:
-            success = True
+        environment_frame = getattr(response, "environment_frame", None)
+        if environment_frame:
+            extracted_answer, extracted_formatted, extracted_success = (
+                self._extract_answer_from_environment_frame(environment_frame)
+            )
+            if not answer:
+                answer = extracted_answer
+            if not formatted_answer:
+                formatted_answer = extracted_formatted
+            if not has_successful_answer and extracted_success is not None:
+                has_successful_answer = extracted_success
+
+        success = status.lower() == "success" or has_successful_answer
+
+        # Parse environment_frame for reasoning trace (verbose mode)
+        reasoning_trace = self._parse_reasoning_trace(environment_frame, status)
 
         return EdisonTaskResponse(
-            task_id=response_task_id,
+            task_id=str(response_task_id),
             success=success,
             status=status,
             answer=answer,
@@ -134,6 +261,7 @@ class EdisonClient:
             has_successful_answer=has_successful_answer,
             metadata=metadata,
             error=getattr(response, "error", None),
+            reasoning_trace=reasoning_trace,
         )
 
     async def close(self):
@@ -161,17 +289,19 @@ class EdisonClient:
         task = self._build_task_request(query, job_type, runtime_config)
         return await self._client.acreate_task(task)
 
-    async def get_task(self, task_id: str) -> EdisonTaskResponse:
+    async def get_task(self, task_id: str, verbose: bool = True) -> EdisonTaskResponse:
         """
         Get the status and result of an Edison task.
 
         Args:
             task_id: The trajectory ID from create_task
+            verbose: If True, request verbose response with environment_frame
+                     for reasoning trace data (default: True)
 
         Returns:
-            EdisonTaskResponse with results
+            EdisonTaskResponse with results (and reasoning_trace if verbose)
         """
-        response = await self._client.aget_task(task_id)
+        response = await self._client.aget_task(task_id, history=verbose, verbose=verbose)
         return self._coerce_task_response(response, task_id=task_id)
 
     async def run_task_until_done(
@@ -250,8 +380,54 @@ class MockEdisonClient(EdisonClient):
         self._task_counter += 1
         return f"mock_task_{self._task_counter}"
 
-    async def get_task(self, task_id: str) -> EdisonTaskResponse:
-        # Simulate completed task
+    async def get_task(self, task_id: str, verbose: bool = True) -> EdisonTaskResponse:
+        # Simulate task with reasoning trace
+        trace = EdisonReasoningTrace(
+            current_step="COMPLETE",
+            steps_completed=[
+                "INITIALIZED", "CREATE_PLAN", "PAPER_SEARCH",
+                "UPDATE_PLAN", "GATHER_EVIDENCE", "CREATE_ARTIFACT", "COMPLETE"
+            ],
+            plan=[
+                EdisonPlanStep(id=1, objective="Search literature", rationale="Find relevant papers", status="completed"),
+                EdisonPlanStep(id=2, objective="Gather evidence", rationale="Extract key findings", status="completed"),
+                EdisonPlanStep(id=3, objective="Synthesize answer", rationale="Combine evidence", status="completed"),
+            ],
+            papers=[
+                EdisonPaperResult(
+                    doc_id="paper_1",
+                    title="Mock Study on Enzyme Inhibition",
+                    authors=["Smith J", "Johnson M"],
+                    journal="Journal of Biological Chemistry",
+                    year=2024,
+                    citation_count=42,
+                    is_peer_reviewed=True,
+                ),
+                EdisonPaperResult(
+                    doc_id="paper_2",
+                    title="Analysis of IC50 Determination Methods",
+                    authors=["Williams A", "Brown K"],
+                    journal="Nature Methods",
+                    year=2023,
+                    citation_count=128,
+                    is_peer_reviewed=True,
+                ),
+            ],
+            evidence=[
+                EdisonEvidence(
+                    doc_id="paper_1",
+                    context="The enzyme showed significant inhibition at concentrations above 10 μM.",
+                    summary="IC50 values typically range from 1-100 μM for similar compounds.",
+                    relevance=0.95,
+                ),
+            ],
+            paper_count=5,
+            relevant_papers=2,
+            evidence_count=3,
+            current_cost=0.0042,
+            status_message="Status: Paper Count=5 | Relevant Papers=2 | Current Evidence=3 | Current Cost=$0.0042",
+        ) if verbose else None
+
         return EdisonTaskResponse(
             task_id=task_id,
             success=True,
@@ -260,6 +436,7 @@ class MockEdisonClient(EdisonClient):
             formatted_answer="**Mock Response**\n\nThis is a simulated response for development.",
             has_successful_answer=True,
             metadata={"mock": True},
+            reasoning_trace=trace,
         )
 
     async def run_task_until_done(
@@ -286,6 +463,44 @@ class MockEdisonClient(EdisonClient):
         else:
             answer = f"Analysis complete for: {query}"
 
+        # Generate mock reasoning trace
+        trace = EdisonReasoningTrace(
+            current_step="COMPLETE",
+            steps_completed=[
+                "INITIALIZED", "CREATE_PLAN", "PAPER_SEARCH",
+                "UPDATE_PLAN", "GATHER_EVIDENCE", "CREATE_ARTIFACT", "COMPLETE"
+            ],
+            plan=[
+                EdisonPlanStep(id=1, objective="Search literature", rationale="Find relevant papers", status="completed"),
+                EdisonPlanStep(id=2, objective="Analyze sources", rationale="Extract key findings", status="completed"),
+                EdisonPlanStep(id=3, objective="Synthesize answer", rationale="Combine evidence into response", status="completed"),
+            ],
+            papers=[
+                EdisonPaperResult(
+                    doc_id="mock_paper_1",
+                    title=f"Mock Study: {query[:50]}...",
+                    authors=["Smith J", "Johnson M"],
+                    journal="Journal of Biological Chemistry",
+                    year=2024,
+                    citation_count=42,
+                    is_peer_reviewed=True,
+                ),
+            ],
+            evidence=[
+                EdisonEvidence(
+                    doc_id="mock_paper_1",
+                    context=f"Evidence related to: {query[:100]}",
+                    summary="Key findings from literature analysis",
+                    relevance=0.9,
+                ),
+            ],
+            paper_count=5,
+            relevant_papers=2,
+            evidence_count=3,
+            current_cost=0.0,
+            status_message="Status: Paper Count=5 | Relevant Papers=2 | Current Evidence=3 | Current Cost=$0.00",
+        )
+
         return EdisonTaskResponse(
             task_id=task_id,
             success=True,
@@ -294,6 +509,7 @@ class MockEdisonClient(EdisonClient):
             formatted_answer=f"**Edison {job_type_name.title()} Analysis**\n\n{answer}",
             has_successful_answer=True,
             metadata={"mock": True, "job_type": job_type.value},
+            reasoning_trace=trace,
         )
 
 

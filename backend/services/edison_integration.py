@@ -249,6 +249,70 @@ class EdisonLitmusIntegration:
         """
         return await self._generate_hypothesis(query, edison_insights, additional_context)
 
+    async def translate_from_insights(
+        self,
+        query: str,
+        edison_insights: str,
+        additional_context: str | None = None,
+        translate_to_cloud_labs: bool = True,
+    ) -> EdisonToLitmusResult:
+        """
+        Generate hypothesis and translations from pre-existing Edison insights.
+
+        Useful for resuming Edison runs without re-querying Edison.
+        """
+        try:
+            hypothesis_result = await self.generate_hypothesis_from_insights(
+                query=query,
+                edison_insights=edison_insights,
+                additional_context=additional_context,
+            )
+
+            if not hypothesis_result.get("hypothesis"):
+                return EdisonToLitmusResult(
+                    success=False,
+                    edison_insights=edison_insights,
+                    error=hypothesis_result.get("error") or "Failed to generate hypothesis",
+                )
+
+            intake = self._build_intake(hypothesis_result, query)
+
+            result = EdisonToLitmusResult(
+                success=True,
+                edison_insights=edison_insights,
+                hypothesis=hypothesis_result.get("hypothesis"),
+                null_hypothesis=hypothesis_result.get("null_hypothesis"),
+                experiment_type=hypothesis_result.get("experiment_type", "CUSTOM"),
+                title=hypothesis_result.get("title"),
+                intake=intake,
+                suggestions=hypothesis_result.get("suggestions", []),
+                warnings=hypothesis_result.get("warnings", []),
+            )
+
+            if translate_to_cloud_labs:
+                try:
+                    translations = do_translate_intake(intake)
+                    result.translations = {
+                        provider: {
+                            "provider": t.provider,
+                            "format": t.format,
+                            "protocol_readable": t.protocol_readable,
+                            "success": t.success,
+                            "errors": [{"message": e.message} for e in t.errors],
+                            "warnings": [{"message": w.message} for w in t.warnings],
+                        }
+                        for provider, t in translations.items()
+                    }
+                except Exception as e:
+                    result.warnings.append(f"Cloud lab translation failed: {str(e)}")
+
+            return result
+        except Exception as e:
+            return EdisonToLitmusResult(
+                success=False,
+                error=str(e),
+            )
+
     async def _generate_hypothesis(
         self,
         query: str,

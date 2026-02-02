@@ -25,7 +25,7 @@ from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, and_, func, or_
+from sqlalchemy import select, and_, func, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 
@@ -38,6 +38,7 @@ from backend.models import (
     Hypothesis as HypothesisModel, HypothesisStatus as DBHypothesisStatus,
     ExperimentStatus as DBExperimentStatus, PaymentStatus as DBPaymentStatus,
     ConfidenceLevel as DBConfidenceLevel, DisputeReason as DBDisputeReason,
+    EdisonRun as EdisonRunModel, EdisonRunStatus as DBEdisonRunStatus,
     generate_uuid
 )
 from backend.auth import (
@@ -581,6 +582,9 @@ async def create_experiment(
 ):
     """Submit a new experiment request."""
     spec = request.model_dump(exclude_none=True)
+    metadata = spec.get("metadata")
+    if isinstance(metadata, dict) and metadata.get("edison_generated") and not metadata.get("intake_id"):
+        spec["metadata"] = {**metadata, "intake_id": generate_uuid()}
 
     # Validate
     validation = validate_intake(spec)
@@ -1367,7 +1371,10 @@ from backend.cloud_labs.models import (
     ValidateForProviderRequest, ProviderInfoResponse, ProvidersListResponse,
     SupportedTypesResponse, ValidationIssueResponse,
     LLMInterpretRequest, LLMInterpretResponse,
-    EdisonTranslateRequest, EdisonTranslateResponse,
+    EdisonTranslateRequest, EdisonTranslateResponse, EdisonJobType,
+    EdisonRunStartResponse, EdisonRunStatusResponse, EdisonRunStatus, EdisonRunSummary,
+    EdisonRunDraft, EdisonRunDraftUpdateRequest, EdisonRunListResponse, EdisonClearHistoryResponse,
+    EdisonReasoningTraceResponse,
 )
 from backend.services.experiment_interpreter import ExperimentInterpreter, get_experiment_interpreter
 from backend.services.edison_integration import EdisonLitmusIntegration, get_edison_litmus_integration
@@ -1381,6 +1388,51 @@ _EDISON_JOB_TYPE_MAP = {
     "precedent": EdisonJobTypeClient.PRECEDENT,
 }
 from backend.models import CloudLabSubmission
+
+
+async def _parse_edison_request(request: Request) -> tuple[EdisonTranslateRequest, str | None]:
+    content_type = request.headers.get("content-type", "")
+    files: List[UploadFile] = []
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        request_data = {
+            "query": form.get("query"),
+            "job_type": form.get("job_type"),
+            "context": form.get("context"),
+            "provider": form.get("provider"),
+        }
+        files = [item for item in form.getlist("files") if isinstance(item, UploadFile)]
+    else:
+        request_data = await request.json()
+
+    try:
+        edison_request = EdisonTranslateRequest(**request_data)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
+
+    additional_context = edison_request.context
+    if files:
+        file_snippets = []
+        for upload in files:
+            filename = upload.filename or "upload"
+            content_type = upload.content_type or "application/octet-stream"
+            if content_type.startswith("text/") or filename.lower().endswith(
+                (".txt", ".md", ".csv", ".tsv", ".json")
+            ):
+                content = await upload.read(50000)
+                text = content.decode("utf-8", errors="replace").strip()
+                if text:
+                    file_snippets.append(f"File: {filename}\n{text}")
+                else:
+                    file_snippets.append(f"File: {filename} (empty text file)")
+            else:
+                file_snippets.append(f"File: {filename} (content type: {content_type})")
+
+        if file_snippets:
+            file_context = "\n\n".join(file_snippets)
+            additional_context = f"{additional_context}\n\n{file_context}" if additional_context else file_context
+
+    return edison_request, additional_context
 
 
 @app.get("/cloud-labs/providers", response_model=ProvidersListResponse, tags=["Cloud Labs"])
@@ -1472,45 +1524,7 @@ async def translate_edison_query(
     Requires LLM_PROVIDER and API key for hypothesis generation.
     """
     integration = get_edison_litmus_integration()
-
-    content_type = request.headers.get("content-type", "")
-    files: List[UploadFile] = []
-    if content_type.startswith("multipart/form-data"):
-        form = await request.form()
-        request_data = {
-            "query": form.get("query"),
-            "job_type": form.get("job_type"),
-            "context": form.get("context"),
-            "provider": form.get("provider"),
-        }
-        files = [item for item in form.getlist("files") if isinstance(item, UploadFile)]
-    else:
-        request_data = await request.json()
-
-    try:
-        edison_request = EdisonTranslateRequest(**request_data)
-    except ValidationError as exc:
-        raise RequestValidationError(exc.errors()) from exc
-
-    additional_context = edison_request.context
-    if files:
-        file_snippets = []
-        for upload in files:
-            filename = upload.filename or "upload"
-            content_type = upload.content_type or "application/octet-stream"
-            if content_type.startswith("text/") or filename.lower().endswith((".txt", ".md", ".csv", ".tsv", ".json")):
-                content = await upload.read(50000)
-                text = content.decode("utf-8", errors="replace").strip()
-                if text:
-                    file_snippets.append(f"File: {filename}\n{text}")
-                else:
-                    file_snippets.append(f"File: {filename} (empty text file)")
-            else:
-                file_snippets.append(f"File: {filename} (content type: {content_type})")
-
-        if file_snippets:
-            file_context = "\n\n".join(file_snippets)
-            additional_context = f"{additional_context}\n\n{file_context}" if additional_context else file_context
+    edison_request, additional_context = await _parse_edison_request(request)
 
     # Map the request job type to the client's enum
     job_type = _EDISON_JOB_TYPE_MAP.get(edison_request.job_type.value, EdisonJobTypeClient.MOLECULES)
@@ -1538,6 +1552,347 @@ async def translate_edison_query(
         translations=result.translations,
         suggestions=result.suggestions,
         warnings=result.warnings,
+    )
+
+
+@app.post("/cloud-labs/edison/start", response_model=EdisonRunStartResponse, tags=["Cloud Labs"])
+async def start_edison_run(
+    request: Request,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Start an Edison run and return a run_id for resumable polling.
+    """
+    integration = get_edison_litmus_integration()
+    edison_request, additional_context = await _parse_edison_request(request)
+
+    job_type = _EDISON_JOB_TYPE_MAP.get(edison_request.job_type.value, EdisonJobTypeClient.MOLECULES)
+    try:
+        task_id = await integration.edison.create_task(
+            query=edison_request.query,
+            job_type=job_type,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    await db.execute(
+        update(EdisonRunModel)
+        .where(
+            and_(
+                EdisonRunModel.user_id == current_user.id,
+                EdisonRunModel.is_hidden.is_(False),
+                EdisonRunModel.status.in_(
+                    (DBEdisonRunStatus.PENDING, DBEdisonRunStatus.RUNNING)
+                ),
+            )
+        )
+        .values(
+            status=DBEdisonRunStatus.FAILED,
+            error="Superseded by new run",
+            updated_at=datetime.utcnow(),
+        )
+    )
+
+    run = EdisonRunModel(
+        user_id=current_user.id,
+        query=edison_request.query,
+        job_type=edison_request.job_type.value,
+        task_id=task_id,
+        status=DBEdisonRunStatus.PENDING,
+        additional_context=additional_context,
+        intake_id=generate_uuid(),
+    )
+    db.add(run)
+    await db.commit()
+
+    return EdisonRunStartResponse(
+        run_id=run.id,
+        status=EdisonRunStatus.PENDING,
+        intake_id=run.intake_id,
+    )
+
+
+@app.get("/cloud-labs/edison/active", response_model=EdisonRunSummary | None, tags=["Cloud Labs"])
+async def get_active_edison_run(
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Fetch the most recent active Edison run for the current user.
+    """
+    result = await db.execute(
+        select(EdisonRunModel)
+        .where(
+            and_(
+                EdisonRunModel.user_id == current_user.id,
+                EdisonRunModel.status.in_(
+                    (DBEdisonRunStatus.PENDING, DBEdisonRunStatus.RUNNING)
+                ),
+            )
+        )
+        .order_by(EdisonRunModel.created_at.desc())
+        .limit(1)
+    )
+    run = result.scalar_one_or_none()
+    if run is None:
+        return None
+
+    return EdisonRunSummary(
+        run_id=run.id,
+        status=EdisonRunStatus(run.status.value),
+        query=run.query,
+        job_type=EdisonJobType(run.job_type),
+        started_at=run.created_at,
+        experiment_type=run.experiment_type,
+        draft=_build_edison_run_draft(run),
+    )
+
+
+@app.get("/cloud-labs/edison/runs", response_model=EdisonRunListResponse, tags=["Cloud Labs"])
+async def list_edison_runs(
+    status: Optional[EdisonRunStatus] = None,
+    limit: int = Query(20, ge=1, le=100),
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    List Edison runs for the current user.
+    """
+    query = select(EdisonRunModel).where(
+        and_(
+            EdisonRunModel.user_id == current_user.id,
+            EdisonRunModel.is_hidden.is_(False),
+        )
+    )
+    if status is not None:
+        query = query.where(EdisonRunModel.status == DBEdisonRunStatus(status.value))
+    query = query.order_by(EdisonRunModel.created_at.desc()).limit(limit)
+
+    result = await db.execute(query)
+    runs = result.scalars().all()
+
+    summaries = [
+        EdisonRunSummary(
+            run_id=run.id,
+            status=EdisonRunStatus(run.status.value),
+            query=run.query,
+            job_type=EdisonJobType(run.job_type),
+            started_at=run.created_at,
+            experiment_type=run.experiment_type,
+            draft=_build_edison_run_draft(run),
+        )
+        for run in runs
+    ]
+
+    return EdisonRunListResponse(runs=summaries)
+
+
+@app.patch("/cloud-labs/edison/runs/{run_id}/draft", response_model=EdisonRunDraft, tags=["Cloud Labs"])
+async def update_edison_run_draft(
+    run_id: str,
+    request: EdisonRunDraftUpdateRequest,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Update draft edits for an Edison run.
+    """
+    result = await db.execute(
+        select(EdisonRunModel).where(
+            and_(
+                EdisonRunModel.id == run_id,
+                EdisonRunModel.user_id == current_user.id,
+            )
+        )
+    )
+    run = result.scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Edison run not found")
+
+    fields_set = request.model_fields_set
+    if "hypothesis" in fields_set:
+        run.edited_hypothesis = request.hypothesis
+    if "null_hypothesis" in fields_set:
+        run.edited_null_hypothesis = request.null_hypothesis
+
+    await db.commit()
+    return _build_edison_run_draft(run) or EdisonRunDraft()
+
+
+@app.post("/cloud-labs/edison/runs/clear-history", response_model=EdisonClearHistoryResponse, tags=["Cloud Labs"])
+async def clear_edison_history(
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Hide completed Edison runs from history for the current user.
+    """
+    result = await db.execute(
+        update(EdisonRunModel)
+        .where(
+            and_(
+                EdisonRunModel.user_id == current_user.id,
+                EdisonRunModel.status == DBEdisonRunStatus.COMPLETED,
+                EdisonRunModel.is_hidden.is_(False),
+            )
+        )
+        .values(is_hidden=True, updated_at=datetime.utcnow())
+    )
+    await db.commit()
+    return EdisonClearHistoryResponse(success=True, cleared=result.rowcount or 0)
+
+
+def _convert_reasoning_trace(trace) -> EdisonReasoningTraceResponse | None:
+    """Convert reasoning trace to API response model."""
+    if trace is None:
+        return None
+    return EdisonReasoningTraceResponse.model_validate(trace.model_dump())
+
+
+def _build_edison_run_draft(run: EdisonRunModel) -> EdisonRunDraft | None:
+    if run.edited_hypothesis is None and run.edited_null_hypothesis is None and run.intake_id is None:
+        return None
+    return EdisonRunDraft(
+        hypothesis=run.edited_hypothesis,
+        null_hypothesis=run.edited_null_hypothesis,
+        intake_id=run.intake_id,
+    )
+
+
+@app.get("/cloud-labs/edison/status/{run_id}", response_model=EdisonRunStatusResponse, tags=["Cloud Labs"])
+async def get_edison_run_status(
+    run_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get the status of an Edison run and return results when completed.
+
+    Returns reasoning_trace with the agent's execution state including:
+    - current_step: Current execution phase (INITIALIZED, CREATE_PLAN, PAPER_SEARCH, etc.)
+    - steps_completed: List of completed phases
+    - plan: Execution plan with objectives and status
+    - papers: Papers found during search
+    - evidence: Evidence gathered from papers
+    - paper_count, relevant_papers, evidence_count: Running counters
+    """
+    result = await db.execute(
+        select(EdisonRunModel).where(
+            and_(
+                EdisonRunModel.id == run_id,
+                EdisonRunModel.user_id == current_user.id,
+            )
+        )
+    )
+    run = result.scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Edison run not found")
+
+    intake_id_updated = False
+    if run.intake_id is None:
+        run.intake_id = generate_uuid()
+        intake_id_updated = True
+
+    if intake_id_updated and run.status in (DBEdisonRunStatus.COMPLETED, DBEdisonRunStatus.FAILED):
+        await db.commit()
+        intake_id_updated = False
+
+    if run.status == DBEdisonRunStatus.COMPLETED:
+        if run.result is None:
+            run.status = DBEdisonRunStatus.FAILED
+            run.error = "Edison run completed without a result"
+            await db.commit()
+            return EdisonRunStatusResponse(
+                run_id=run.id,
+                status=EdisonRunStatus.FAILED,
+                error=run.error,
+                draft=_build_edison_run_draft(run),
+            )
+        return EdisonRunStatusResponse(
+            run_id=run.id,
+            status=EdisonRunStatus.COMPLETED,
+            result=EdisonTranslateResponse(**run.result),
+            draft=_build_edison_run_draft(run),
+        )
+
+    if run.status == DBEdisonRunStatus.FAILED:
+        return EdisonRunStatusResponse(
+            run_id=run.id,
+            status=EdisonRunStatus.FAILED,
+            error=run.error,
+            draft=_build_edison_run_draft(run),
+        )
+
+    integration = get_edison_litmus_integration()
+    edison_task = await integration.edison.get_task(run.task_id, verbose=True)
+    task_status = edison_task.status.lower()
+    in_progress = task_status in ("in progress", "pending", "queued", "running")
+
+    # Convert reasoning trace for response
+    reasoning_trace = _convert_reasoning_trace(edison_task.reasoning_trace)
+
+    if in_progress:
+        run.status = DBEdisonRunStatus.RUNNING
+        await db.commit()
+        return EdisonRunStatusResponse(
+            run_id=run.id,
+            status=EdisonRunStatus.RUNNING,
+            reasoning_trace=reasoning_trace,
+            draft=_build_edison_run_draft(run),
+        )
+
+    edison_insights = edison_task.formatted_answer or edison_task.answer
+    if not edison_insights:
+        run.status = DBEdisonRunStatus.FAILED
+        run.error = "Edison response missing insights"
+        await db.commit()
+        return EdisonRunStatusResponse(
+            run_id=run.id,
+            status=EdisonRunStatus.FAILED,
+            error=run.error,
+            reasoning_trace=reasoning_trace,
+            draft=_build_edison_run_draft(run),
+        )
+
+    translated = await integration.translate_from_insights(
+        query=run.query,
+        edison_insights=edison_insights,
+        additional_context=run.additional_context,
+        translate_to_cloud_labs=True,
+    )
+
+    if not translated.success:
+        run.status = DBEdisonRunStatus.FAILED
+        run.error = translated.error or "Failed to translate Edison insights"
+        await db.commit()
+        return EdisonRunStatusResponse(
+            run_id=run.id,
+            status=EdisonRunStatus.FAILED,
+            error=run.error,
+            reasoning_trace=reasoning_trace,
+            draft=_build_edison_run_draft(run),
+        )
+
+    response_payload = EdisonTranslateResponse(
+        success=True,
+        experiment_type=translated.experiment_type,
+        intake=translated.intake,
+        translations=translated.translations,
+        suggestions=translated.suggestions,
+        warnings=translated.warnings,
+    )
+    run.status = DBEdisonRunStatus.COMPLETED
+    run.experiment_type = translated.experiment_type
+    run.result = response_payload.model_dump()
+    await db.commit()
+
+    return EdisonRunStatusResponse(
+        run_id=run.id,
+        status=EdisonRunStatus.COMPLETED,
+        result=response_payload,
+        reasoning_trace=reasoning_trace,
+        draft=_build_edison_run_draft(run),
     )
 
 

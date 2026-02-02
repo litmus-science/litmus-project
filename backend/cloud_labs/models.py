@@ -7,6 +7,13 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, ConfigDict
 from enum import Enum
 
+from backend.models import EdisonRunStatus
+from backend.services.edison_types import (
+    EdisonPlanStep,
+    EdisonPaperResult,
+    EdisonEvidence,
+    EdisonReasoningTrace,
+)
 
 class CloudLabProvider(str, Enum):
     """Supported cloud lab providers."""
@@ -31,6 +38,23 @@ class EdisonJobType(str, Enum):
     MOLECULES = "molecules"
     ANALYSIS = "analysis"
     PRECEDENT = "precedent"
+
+
+# Edison Reasoning Trace schemas for streaming UI
+class EdisonPlanStepResponse(EdisonPlanStep):
+    """A step in Edison's execution plan."""
+
+
+class EdisonPaperResultResponse(EdisonPaperResult):
+    """A paper found during literature search."""
+
+
+class EdisonEvidenceResponse(EdisonEvidence):
+    """Evidence gathered from a paper."""
+
+
+class EdisonReasoningTraceResponse(EdisonReasoningTrace):
+    """Full reasoning trace from Edison's execution for streaming UI."""
 
 
 # Request schemas
@@ -81,6 +105,59 @@ class EdisonTranslateResponse(BaseModel):
     suggestions: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
     error: Optional[str] = None
+
+
+class EdisonRunStartResponse(BaseModel):
+    """Response from starting an Edison run."""
+    run_id: str
+    status: EdisonRunStatus
+    intake_id: str
+
+
+class EdisonRunDraft(BaseModel):
+    """Draft edits for an Edison run."""
+    hypothesis: Optional[str] = None
+    null_hypothesis: Optional[str] = None
+    intake_id: Optional[str] = None
+
+
+class EdisonRunStatusResponse(BaseModel):
+    """Status response for a persisted Edison run."""
+    run_id: str
+    status: EdisonRunStatus
+    result: Optional[EdisonTranslateResponse] = None
+    error: Optional[str] = None
+    reasoning_trace: Optional[EdisonReasoningTraceResponse] = None
+    draft: Optional[EdisonRunDraft] = None
+
+
+class EdisonRunSummary(BaseModel):
+    """Summary of an active Edison run."""
+    run_id: str
+    status: EdisonRunStatus
+    query: str
+    job_type: EdisonJobType
+    started_at: datetime
+    reasoning_trace: Optional[EdisonReasoningTraceResponse] = None
+    experiment_type: Optional[str] = None
+    draft: Optional[EdisonRunDraft] = None
+
+
+class EdisonRunDraftUpdateRequest(BaseModel):
+    """Request to update draft edits for an Edison run."""
+    hypothesis: Optional[str] = None
+    null_hypothesis: Optional[str] = None
+
+
+class EdisonRunListResponse(BaseModel):
+    """List response for Edison runs."""
+    runs: List[EdisonRunSummary]
+
+
+class EdisonClearHistoryResponse(BaseModel):
+    """Response for clearing Edison run history."""
+    success: bool
+    cleared: int
 
 
 class ValidateForProviderRequest(BaseModel):

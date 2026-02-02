@@ -4,12 +4,24 @@ Pydantic schemas for API request/response models.
 
 from datetime import datetime, date
 from typing import Optional, List, Dict, Any, Union
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 from enum import Enum
+
+from backend.services.experiment_types import EXPERIMENT_TYPE_FIELD_MAP
+from backend.models import HypothesisStatus
 
 # JSON type for arbitrary JSON data (opaque blobs not requiring deep validation)
 # Using object as the value type allows nested structures without recursive type issues
 JsonDict = Dict[str, object]
+
+_ALLOWED_EXPERIMENT_TYPES = set(EXPERIMENT_TYPE_FIELD_MAP.keys())
+
+
+def _validate_experiment_type(value: str) -> str:
+    if value not in _ALLOWED_EXPERIMENT_TYPES:
+        allowed = ", ".join(sorted(_ALLOWED_EXPERIMENT_TYPES))
+        raise ValueError(f"Invalid experiment_type. Allowed: {allowed}")
+    return value
 
 
 # Enums
@@ -29,12 +41,6 @@ class PaymentStatus(str, Enum):
     ESCROWED = "escrowed"
     RELEASED = "released"
     REFUNDED = "refunded"
-
-
-class HypothesisStatus(str, Enum):
-    DRAFT = "draft"
-    USED = "used"
-    ARCHIVED = "archived"
 
 
 class ConfidenceLevel(str, Enum):
@@ -480,6 +486,11 @@ class HypothesisCreate(BaseModel):
     edison_response: Optional[JsonDict] = None
     intake_draft: Optional[JsonDict] = None
 
+    @field_validator("experiment_type")
+    @classmethod
+    def validate_experiment_type(cls, value: str) -> str:
+        return _validate_experiment_type(value)
+
 
 class HypothesisUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=500)
@@ -490,6 +501,13 @@ class HypothesisUpdate(BaseModel):
     edison_query: Optional[str] = None
     edison_response: Optional[JsonDict] = None
     intake_draft: Optional[JsonDict] = None
+
+    @field_validator("experiment_type")
+    @classmethod
+    def validate_experiment_type(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        return _validate_experiment_type(value)
 
 
 class HypothesisResponse(BaseModel):
