@@ -8,6 +8,8 @@ import {
   EXPERIMENT_TYPE_LABELS,
   getExperimentTypeLabel,
 } from "@/lib/experimentTypeLabels";
+import { useAuth } from "@/lib/auth";
+import { usePaginatedList } from "@/lib/usePaginatedList";
 
 interface HypothesisPickerProps {
   isOpen: boolean;
@@ -37,77 +39,72 @@ export function HypothesisPicker({
   onClose,
   onSelect,
 }: HypothesisPickerProps) {
-  const [hypotheses, setHypotheses] = useState<HypothesisListItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const { authChecked, isAuthenticated } = useAuth();
   const [filterType, setFilterType] = useState<string>("all");
-  const [hasMore, setHasMore] = useState(false);
-  const [cursor, setCursor] = useState<string | undefined>(undefined);
   const requestController = useRef<AbortController | null>(null);
 
-  const fetchHypotheses = useCallback(
-    async ({
-      reset = false,
-      cursor: nextCursor,
-    }: { reset?: boolean; cursor?: string } = {}) => {
+  const loadPage = useCallback(
+    async (cursorParam?: string) => {
       requestController.current?.abort();
       const controller = new AbortController();
       requestController.current = controller;
 
-      setLoading(true);
-      setError("");
-
-      try {
-        const params: {
-          experiment_type?: string;
-          limit: number;
-          cursor?: string;
-        } = { limit: 10 };
-        if (filterType !== "all") {
-          params.experiment_type = filterType;
-        }
-        if (!reset && nextCursor) {
-          params.cursor = nextCursor;
-        }
-
-        const response = await listHypotheses(params, {
-          signal: controller.signal,
-        });
-
-        if (reset) {
-          setHypotheses(response.hypotheses);
-        } else {
-          setHypotheses((prev) => [...prev, ...response.hypotheses]);
-        }
-
-        setHasMore(response.pagination.has_more);
-        setCursor(response.pagination.cursor);
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") {
-          return;
-        }
-        if (err instanceof ApiError) {
-          setError(err.message);
-        } else {
-          setError(
-            err instanceof Error ? err.message : "Failed to load hypotheses",
-          );
-        }
-      } finally {
-        if (requestController.current === controller) {
-          requestController.current = null;
-          setLoading(false);
-        }
+      const params: {
+        experiment_type?: string;
+        limit: number;
+        cursor?: string;
+      } = { limit: 10 };
+      if (filterType !== "all") {
+        params.experiment_type = filterType;
       }
+      if (cursorParam) {
+        params.cursor = cursorParam;
+      }
+
+      const response = await listHypotheses(params, {
+        signal: controller.signal,
+      });
+
+      return {
+        items: response.hypotheses,
+        cursor: response.pagination?.cursor,
+        hasMore: response.pagination?.has_more ?? false,
+      };
     },
     [filterType],
   );
 
+  const {
+    items: hypotheses,
+    status,
+    error,
+    hasMore,
+    loadInitial,
+    loadMore,
+  } = usePaginatedList<HypothesisListItem>({
+    loadPage,
+    getErrorMessage: (err) => {
+      if (err instanceof ApiError) {
+        return err.message;
+      }
+      if (err instanceof Error) {
+        return err.message;
+      }
+      return "Failed to load hypotheses";
+    },
+    isErrorIgnorable: (err) =>
+      err instanceof Error && err.name === "AbortError",
+  });
+
+  const isLoading = status === "loading";
+  const isLoadingMore = status === "loadingMore";
+  const isBusy = isLoading || isLoadingMore;
+
   useEffect(() => {
-    if (isOpen) {
-      fetchHypotheses({ reset: true });
-    }
-  }, [isOpen, filterType, fetchHypotheses]);
+    if (!isOpen) return;
+    if (!authChecked || !isAuthenticated()) return;
+    void loadInitial();
+  }, [authChecked, isAuthenticated, isOpen, loadInitial]);
 
   useEffect(() => {
     return () => {
@@ -125,10 +122,8 @@ export function HypothesisPicker({
   );
 
   const handleLoadMore = useCallback(() => {
-    if (!loading && hasMore) {
-      fetchHypotheses({ cursor });
-    }
-  }, [loading, hasMore, cursor, fetchHypotheses]);
+    void loadMore();
+  }, [loadMore]);
 
   const handleBackdropClick = useCallback(
     (e: React.MouseEvent) => {
@@ -184,7 +179,6 @@ export function HypothesisPicker({
             value={filterType}
             onChange={(e) => {
               setFilterType(e.target.value);
-              setCursor(undefined);
             }}
             className="input text-sm py-2"
           >
@@ -201,7 +195,7 @@ export function HypothesisPicker({
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {error && <div className="alert-error mb-4">{error}</div>}
 
-          {loading && hypotheses.length === 0 ? (
+          {isLoading && hypotheses.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
             </div>
@@ -270,7 +264,7 @@ export function HypothesisPicker({
         </div>
 
         {/* Footer with Load More */}
-        {hasMore && !loading && hypotheses.length > 0 && (
+        {hasMore && !isBusy && hypotheses.length > 0 && (
           <div className="border-t border-surface-200 px-6 py-4">
             <button
               type="button"
@@ -282,7 +276,7 @@ export function HypothesisPicker({
           </div>
         )}
 
-        {loading && hypotheses.length > 0 && (
+        {isLoadingMore && hypotheses.length > 0 && (
           <div className="border-t border-surface-200 px-6 py-4 flex justify-center">
             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent"></div>
           </div>

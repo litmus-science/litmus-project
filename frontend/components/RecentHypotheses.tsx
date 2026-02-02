@@ -1,14 +1,17 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { listHypotheses, deleteHypothesis } from "@/lib/api";
 import type { HypothesisListItem } from "@/lib/types";
 import { getExperimentTypeLabel } from "@/lib/experimentTypeLabels";
+import { useAuth } from "@/lib/auth";
+import { usePaginatedList } from "@/lib/usePaginatedList";
 
 interface RecentHypothesesProps {
   onSelect: (hypothesis: HypothesisListItem) => void;
   onDelete?: (id: string) => void;
-  maxItems?: number;
+  selectedId?: string | null;
+  pageSize?: number;
   className?: string;
 }
 
@@ -21,10 +24,9 @@ const formatRelativeTime = (date: string): string => {
   const diffDays = Math.floor(diffMs / 86400000);
 
   if (diffMins < 1) return "Just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays === 1) return "1d ago";
-  if (diffDays < 30) return `${diffDays}d ago`;
+  if (diffMins < 60) return `${diffMins}m`;
+  if (diffHours < 24) return `${diffHours}h`;
+  if (diffDays < 7) return `${diffDays}d`;
 
   return then.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 };
@@ -32,32 +34,85 @@ const formatRelativeTime = (date: string): string => {
 export function RecentHypotheses({
   onSelect,
   onDelete,
-  maxItems = 5,
+  selectedId,
+  pageSize = 10,
   className = "",
 }: RecentHypothesesProps) {
-  const [hypotheses, setHypotheses] = useState<HypothesisListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const { authChecked, isAuthenticated } = useAuth();
+  const [actionError, setActionError] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
-  const fetchHypotheses = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError("");
-      const response = await listHypotheses({ limit: maxItems });
-      setHypotheses(response.hypotheses);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load hypotheses",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [maxItems]);
+  const loadPage = useCallback(
+    async (cursorParam?: string) => {
+      const response = await listHypotheses({
+        limit: pageSize,
+        cursor: cursorParam,
+      });
+      return {
+        items: response.hypotheses,
+        cursor: response.pagination?.cursor,
+        hasMore: response.pagination?.has_more ?? false,
+      };
+    },
+    [pageSize],
+  );
+
+  const {
+    items: hypotheses,
+    status,
+    error: paginationError,
+    hasMore,
+    loadInitial,
+    loadMore,
+    updateItems,
+  } = usePaginatedList<HypothesisListItem>({
+    loadPage,
+    getErrorMessage: (err, mode) => {
+      if (err instanceof Error) {
+        return err.message;
+      }
+      return mode === "more" ? "Failed to load more" : "Failed to load hypotheses";
+    },
+    initialStatus: "loading",
+  });
+
+  const error = actionError || paginationError;
+  const isLoading = status === "loading";
+  const isLoadingMore = status === "loadingMore";
 
   useEffect(() => {
-    fetchHypotheses();
-  }, [fetchHypotheses]);
+    if (!authChecked || !isAuthenticated()) {
+      return;
+    }
+    void loadInitial();
+  }, [authChecked, isAuthenticated, loadInitial]);
+
+  useEffect(() => {
+    if (status === "loading" || status === "loadingMore") {
+      setActionError("");
+    }
+  }, [status]);
+
+  // Intersection observer for infinite scroll
+  useEffect(() => {
+    if (!hasMore || isLoading || isLoadingMore || status === "error") return;
+
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          void loadMore();
+        }
+      },
+      { rootMargin: "100px" }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, isLoading, isLoadingMore, loadMore, status]);
 
   const handleDelete = useCallback(
     async (id: string, event: React.MouseEvent) => {
@@ -65,23 +120,24 @@ export function RecentHypotheses({
 
       if (!confirm("Delete this hypothesis?")) return;
 
+      setDeletingId(id);
+      setActionError("");
       try {
-        setDeletingId(id);
         await deleteHypothesis(id);
-        setHypotheses((prev) => prev.filter((h) => h.id !== id));
+        updateItems((prev) => prev.filter((h) => h.id !== id));
         onDelete?.(id);
       } catch (err) {
-        setError(
+        setActionError(
           err instanceof Error ? err.message : "Failed to delete hypothesis",
         );
       } finally {
         setDeletingId(null);
       }
     },
-    [onDelete],
+    [onDelete, updateItems],
   );
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className={className}>
         <div className="space-y-2">
@@ -96,7 +152,7 @@ export function RecentHypotheses({
     );
   }
 
-  if (error) {
+  if (error && hypotheses.length === 0) {
     return (
       <div className={className}>
         <p className="text-xs text-red-500">{error}</p>
@@ -116,72 +172,69 @@ export function RecentHypotheses({
 
   return (
     <div className={className}>
-      <div className="space-y-1">
-        {hypotheses.map((hypothesis) => (
-          <div
-            key={hypothesis.id}
-            className="group flex items-start justify-between gap-2"
-          >
-            <button
-              type="button"
-              onClick={() => onSelect(hypothesis)}
-              className="flex-1 min-w-0 text-left px-3 py-2 hover:bg-surface-50 transition-colors rounded"
+      <div className="space-y-0.5">
+        {hypotheses.map((hypothesis) => {
+          const isSelected = selectedId === hypothesis.id;
+          return (
+            <div
+              key={hypothesis.id}
+              className="group flex items-start"
             >
-              <p className="text-sm text-surface-700 truncate mb-1">
-                {hypothesis.title}
-              </p>
-              <div className="flex items-center gap-2">
-                {hypothesis.experiment_type && (
-                  <span className="inline-flex items-center px-1.5 py-0.5 text-xs font-mono uppercase tracking-wider bg-surface-100 text-surface-600 border border-surface-200">
-                    {getExperimentTypeLabel(
-                      hypothesis.experiment_type,
-                      "short",
-                    )}
-                  </span>
-                )}
-                <span className="text-xs text-surface-500">
-                  {formatRelativeTime(hypothesis.created_at)}
-                </span>
-              </div>
-            </button>
-            {onDelete && (
               <button
                 type="button"
-                onClick={(e) => handleDelete(hypothesis.id, e)}
-                disabled={deletingId === hypothesis.id}
-                className="opacity-0 group-hover:opacity-100 flex-shrink-0 text-surface-400 hover:text-red-500 transition-all disabled:opacity-50 px-2 py-2"
-                aria-label="Delete hypothesis"
+                onClick={() => onSelect(hypothesis)}
+                className={`flex-1 min-w-0 text-left px-3 py-2 rounded-r transition-colors border-l-2 ${
+                  isSelected
+                    ? "border-l-accent bg-surface-200/60"
+                    : "border-l-accent/40 hover:bg-surface-200/40"
+                }`}
               >
-                {deletingId === hypothesis.id ? (
-                  <div className="w-4 h-4 animate-spin rounded-full border-b-2 border-surface-400"></div>
-                ) : (
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={1.5}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                )}
+                <p className={`text-sm truncate ${isSelected ? "text-surface-900" : "text-surface-700"}`}>
+                  {hypothesis.title}
+                </p>
+                <p className="text-xs text-surface-500 mt-0.5">
+                  {hypothesis.experiment_type &&
+                    getExperimentTypeLabel(hypothesis.experiment_type, "short")}
+                  {hypothesis.experiment_type && " · "}
+                  {formatRelativeTime(hypothesis.created_at)}
+                </p>
               </button>
-            )}
-          </div>
-        ))}
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={(e) => handleDelete(hypothesis.id, e)}
+                  disabled={deletingId === hypothesis.id}
+                  className="opacity-0 group-hover:opacity-100 flex-shrink-0 text-surface-400 hover:text-red-500 transition-all disabled:opacity-50 p-2"
+                  aria-label="Delete hypothesis"
+                >
+                  {deletingId === hypothesis.id ? (
+                    <div className="w-3.5 h-3.5 animate-spin rounded-full border-b-2 border-surface-400" />
+                  ) : (
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  )}
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
-      <div className="mt-4 pt-3 border-t border-surface-200">
-        <button
-          type="button"
-          className="w-full text-xs font-mono uppercase tracking-wide text-surface-500 hover:text-accent transition-colors text-center"
-        >
-          View all
-        </button>
-      </div>
+
+      {/* Sentinel for infinite scroll */}
+      <div ref={sentinelRef} className="h-1" />
+
+      {/* Loading more indicator */}
+      {isLoadingMore && (
+        <div className="flex justify-center py-2">
+          <div className="w-4 h-4 animate-spin rounded-full border-b-2 border-surface-400" />
+        </div>
+      )}
+
+      {/* Error loading more */}
+      {error && hypotheses.length > 0 && (
+        <p className="text-xs text-red-500 text-center py-2">{error}</p>
+      )}
     </div>
   );
 }

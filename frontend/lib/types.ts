@@ -361,6 +361,7 @@ export interface EdisonRunDraftUpdate {
 
 export interface EdisonRunListResponse {
   runs: EdisonRunSummary[];
+  pagination?: { total: number; cursor?: string; has_more: boolean };
 }
 
 export interface EdisonClearHistoryResponse {
@@ -416,7 +417,7 @@ export interface HypothesisListItem {
 
 export interface HypothesisListResponse {
   hypotheses: HypothesisListItem[];
-  pagination: { total: number; cursor?: string; has_more: boolean };
+  pagination?: { total: number; cursor?: string; has_more: boolean };
 }
 
 export interface HypothesisToExperimentRequest {

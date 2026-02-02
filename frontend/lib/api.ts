@@ -33,6 +33,7 @@ export type RateLimitInfo = {
   limit?: string;
   remaining?: string;
   reset?: string;
+  retryAfter?: string;
 };
 
 type RequestOptions = {
@@ -94,16 +95,32 @@ async function request<T>(
     (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  const method = (options.method ?? "GET").toUpperCase();
 
-  const rateLimit: RateLimitInfo = {
+  const fetchOnce = () =>
+    fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers,
+    });
+
+  const readRateLimit = (response: Response): RateLimitInfo => ({
     limit: response.headers.get("X-RateLimit-Limit") ?? undefined,
     remaining: response.headers.get("X-RateLimit-Remaining") ?? undefined,
     reset: response.headers.get("X-RateLimit-Reset") ?? undefined,
-  };
+    retryAfter: response.headers.get("Retry-After") ?? undefined,
+  });
+
+  let response = await fetchOnce();
+  let rateLimit = readRateLimit(response);
+
+  if (response.status === 429 && (method === "GET" || method === "HEAD")) {
+    const retryAfterSeconds = Number.parseInt(rateLimit.retryAfter ?? "", 10);
+    if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+      await new Promise((resolve) => setTimeout(resolve, retryAfterSeconds * 1000));
+      response = await fetchOnce();
+      rateLimit = readRateLimit(response);
+    }
+  }
 
   if (!response.ok) {
     const error = (await response
@@ -444,10 +461,12 @@ export async function getActiveEdisonRun(): Promise<EdisonRunSummary | null> {
 export async function listEdisonRuns(params?: {
   status?: EdisonRunStatus;
   limit?: number;
+  cursor?: string;
 }): Promise<EdisonRunListResponse> {
   const searchParams = new URLSearchParams();
   if (params?.status) searchParams.set("status", params.status);
   if (params?.limit) searchParams.set("limit", params.limit.toString());
+  if (params?.cursor) searchParams.set("cursor", params.cursor);
   const query = searchParams.toString();
   return request<EdisonRunListResponse>(
     `/cloud-labs/edison/runs${query ? `?${query}` : ""}`,

@@ -5,6 +5,7 @@ import {
   useEffect,
   useCallback,
   useMemo,
+  useRef,
   Suspense,
   type ReactNode,
 } from "react";
@@ -40,6 +41,7 @@ import { SaveHypothesisButton } from "@/components/SaveHypothesisButton";
 import { RecentHypotheses } from "@/components/RecentHypotheses";
 import { MIN_HYPOTHESIS_LENGTH } from "@/lib/hypothesisValidation";
 import { getExperimentTypeLabel } from "@/lib/experimentTypeLabels";
+import { usePaginatedList } from "@/lib/usePaginatedList";
 
 type FlowState =
   | "INITIAL"
@@ -53,6 +55,52 @@ interface ChatSession {
   agent: EdisonJobType;
   timestamp: Date;
   experimentType?: string;
+}
+
+type TimeGroup = "Today" | "Yesterday" | "Previous 7 days" | "Older";
+const timeGroupOrder: TimeGroup[] = [
+  "Today",
+  "Yesterday",
+  "Previous 7 days",
+  "Older",
+];
+
+function getTimeGroup(date: Date): TimeGroup {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today.getTime() - 86400000);
+  const weekAgo = new Date(today.getTime() - 7 * 86400000);
+
+  if (date >= today) return "Today";
+  if (date >= yesterday) return "Yesterday";
+  if (date >= weekAgo) return "Previous 7 days";
+  return "Older";
+}
+
+function groupByTime(sessions: ChatSession[]): Map<TimeGroup, ChatSession[]> {
+  const groups = new Map<TimeGroup, ChatSession[]>();
+  for (const session of sessions) {
+    const group = getTimeGroup(session.timestamp);
+    const existing = groups.get(group);
+    if (existing) {
+      existing.push(session);
+    } else {
+      groups.set(group, [session]);
+    }
+  }
+  return groups;
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.substring(0, maxLength)}...`;
+}
+
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 const agentCards: {
@@ -236,7 +284,7 @@ const sidebarItems = [
   },
 ];
 
-const chatHistoryLimit = 20;
+const chatHistoryPageSize = 20;
 const edisonEditsPersistDelayMs = 300;
 const edisonRunPollIntervalMs = 3000;
 
@@ -284,11 +332,52 @@ const buildFallbackEdisonResponse = (
 function HypothesizePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isAuthenticated } = useAuth();
+  const searchKey = searchParams.toString();
+  const continueId = useMemo(
+    () => new URLSearchParams(searchKey).get("continue"),
+    [searchKey],
+  );
+  const { isAuthenticated, authChecked } = useAuth();
 
   // Sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
+  const historySentinelRef = useRef<HTMLDivElement>(null);
+  const loadHistoryPage = useCallback(
+    async (cursorParam?: string) => {
+      const response = await listEdisonRuns({
+        status: "completed",
+        limit: chatHistoryPageSize,
+        cursor: cursorParam,
+      });
+      return {
+        items: response.runs.map((run) => ({
+          id: run.run_id,
+          query: run.query,
+          agent: run.job_type,
+          timestamp: new Date(run.started_at),
+          experimentType: run.experiment_type,
+        })),
+        cursor: response.pagination?.cursor,
+        hasMore: response.pagination?.has_more ?? false,
+      };
+    },
+    [],
+  );
+  const {
+    items: chatHistory,
+    status: historyStatus,
+    hasMore: historyHasMore,
+    loadInitial: loadHistory,
+    loadMore: loadMoreHistory,
+    reset: resetHistory,
+    updateItems: updateChatHistory,
+  } = usePaginatedList<ChatSession>({
+    loadPage: loadHistoryPage,
+    getErrorMessage: () => "Failed to load history",
+  });
+
+  const isHistoryLoading = historyStatus === "loading";
+  const isHistoryLoadingMore = historyStatus === "loadingMore";
 
   // Flow state
   const [flowState, setFlowState] = useState<FlowState>("INITIAL");
@@ -346,14 +435,19 @@ function HypothesizePageContent() {
 
   // Auth check
   useEffect(() => {
+    if (!authChecked) {
+      return;
+    }
     if (!isAuthenticated()) {
       router.push("/login");
     }
-  }, [isAuthenticated, router]);
+  }, [authChecked, isAuthenticated, router]);
 
   // Handle ?continue={id} URL parameter
   useEffect(() => {
-    const continueId = searchParams.get("continue");
+    if (!authChecked || !isAuthenticated()) {
+      return;
+    }
     if (!continueId) return;
 
     const loadHypothesis = async () => {
@@ -387,45 +481,56 @@ function HypothesizePageContent() {
     };
 
     loadHypothesis();
-  }, [searchParams]);
+  }, [authChecked, continueId, isAuthenticated]);
 
   // Load chat history from server
   useEffect(() => {
-    const continueId = searchParams.get("continue");
-    if (continueId) {
+    if (!authChecked || !isAuthenticated()) {
       return;
     }
+    resetHistory();
+    void loadHistory();
+  }, [authChecked, isAuthenticated, loadHistory, resetHistory, searchKey]);
+  
+  // Load more history on scroll
 
-    let cancelled = false;
+  // Intersection observer for history infinite scroll
+  useEffect(() => {
+    if (
+      !historyHasMore ||
+      isHistoryLoading ||
+      isHistoryLoadingMore ||
+      historyStatus === "error"
+    )
+      return;
 
-    listEdisonRuns({ status: "completed", limit: chatHistoryLimit })
-      .then((response) => {
-        if (cancelled) return;
-        setChatHistory(
-          response.runs.map((run) => ({
-            id: run.run_id,
-            query:
-              run.query.substring(0, 100) +
-              (run.query.length > 100 ? "..." : ""),
-            agent: run.job_type,
-            timestamp: new Date(run.started_at),
-            experimentType: run.experiment_type,
-          })),
-        );
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setChatHistory([]);
-      });
+    const sentinel = historySentinelRef.current;
+    if (!sentinel) return;
 
-    return () => {
-      cancelled = true;
-    };
-  }, [searchParams]);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          void loadMoreHistory();
+        }
+      },
+      { rootMargin: "100px" }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [
+    historyHasMore,
+    isHistoryLoading,
+    isHistoryLoadingMore,
+    loadMoreHistory,
+    historyStatus,
+  ]);
 
   // Load active Edison run from server (SSOT), fall back to latest completed run
   useEffect(() => {
-    const continueId = searchParams.get("continue");
+    if (!authChecked || !isAuthenticated()) {
+      return;
+    }
     if (continueId) {
       return;
     }
@@ -495,7 +600,7 @@ function HypothesizePageContent() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams]);
+  }, [authChecked, continueId, isAuthenticated, searchKey]);
 
   // Persist edits with debounce (server)
   useEffect(() => {
@@ -567,11 +672,67 @@ function HypothesizePageContent() {
     };
   }, [edisonResponse?.experiment_type]);
 
-  const addChatHistorySession = useCallback((session: ChatSession) => {
-    setChatHistory((prev) => {
-      const updatedHistory = [session, ...prev].slice(0, chatHistoryLimit);
-      return updatedHistory;
-    });
+  const addChatHistorySession = useCallback(
+    (session: ChatSession) => {
+      updateChatHistory((prev) => [session, ...prev]);
+    },
+    [updateChatHistory],
+  );
+
+  const handleHistorySelect = useCallback(async (session: ChatSession) => {
+    setError("");
+    setEdisonRunId(session.id);
+    setQuery(session.query);
+    setSelectedAgent(session.agent);
+
+    try {
+      const statusResponse = await getEdisonRunStatus(session.id);
+      if (!statusResponse.result) {
+        const message =
+          statusResponse.status === "failed"
+            ? statusResponse.error || "Edison run failed"
+            : statusResponse.status === "completed"
+              ? "Edison run completed without a result"
+              : "Edison run is not ready yet";
+        setError(message);
+        setFlowState("INITIAL");
+        setEdisonResponse(null);
+        setEditedHypothesis("");
+        setEditedNullHypothesis("");
+        setIntakeId(null);
+        setEdisonRunId(null);
+        setEdisonRunInfo(null);
+        setReasoningTrace(null);
+        return;
+      }
+      setEdisonResponse(statusResponse.result);
+      setEditedHypothesis(
+        statusResponse.draft?.hypothesis ??
+          statusResponse.result.intake.hypothesis.statement ??
+          "",
+      );
+      setEditedNullHypothesis(
+        statusResponse.draft?.null_hypothesis ??
+          statusResponse.result.intake.hypothesis.null_hypothesis ??
+          "",
+      );
+      setIntakeId(statusResponse.draft?.intake_id ?? null);
+      setFlowState("HYPOTHESIS_REVIEW");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to load saved hypothesis",
+      );
+      setFlowState("INITIAL");
+      setEdisonResponse(null);
+      setEditedHypothesis("");
+      setEditedNullHypothesis("");
+      setIntakeId(null);
+      setEdisonRunId(null);
+      setEdisonRunInfo(null);
+      setReasoningTrace(null);
+    }
   }, []);
 
   // Poll Edison run status while processing
@@ -615,9 +776,7 @@ function HypothesizePageContent() {
             if (edisonRunInfo) {
               const newSession: ChatSession = {
                 id: edisonRunId,
-                query:
-                  edisonRunInfo.query.substring(0, 100) +
-                  (edisonRunInfo.query.length > 100 ? "..." : ""),
+                query: edisonRunInfo.query,
                 agent: edisonRunInfo.job_type,
                 timestamp: new Date(edisonRunInfo.started_at),
                 experimentType: status.result.experiment_type,
@@ -726,7 +885,7 @@ function HypothesizePageContent() {
     clearEdisonHistory()
       .then((result) => {
         if (result.success) {
-          setChatHistory([]);
+          resetHistory();
         }
       })
       .catch((err) => {
@@ -734,7 +893,7 @@ function HypothesizePageContent() {
           err instanceof Error ? err.message : "Failed to clear history",
         );
       });
-  }, []);
+  }, [resetHistory]);
 
   const handleGenerate = useCallback(async () => {
     const trimmedQuery = query.trim();
@@ -894,6 +1053,10 @@ function HypothesizePageContent() {
     (agent) => agent.value === selectedAgent,
   );
   const overlayTabIndex = sidebarOpen ? undefined : -1;
+  const groupedHistory = useMemo(
+    () => groupByTime(chatHistory),
+    [chatHistory],
+  );
 
   // Get confidence color based on intake - memoized
   const confidenceBadge = useMemo(() => {
@@ -1002,113 +1165,162 @@ function HypothesizePageContent() {
 
       {/* Sliding Sidebar Panel - fixed to viewport, above navbar */}
       <aside
-        className={`fixed left-0 inset-y-0 z-[60] w-64 bg-surface-100 border-r border-surface-200 flex flex-col shadow-lg transition-transform duration-150 ease-out motion-reduce:transition-none ${
+        className={`fixed left-0 inset-y-0 z-[60] w-72 bg-[#f7f7f7] border-r border-black/[0.06] flex flex-col transition-transform duration-150 ease-out motion-reduce:transition-none ${
           sidebarOpen
             ? "translate-x-0"
             : "-translate-x-full pointer-events-none"
         }`}
         aria-hidden={!sidebarOpen}
       >
+        {/* Header */}
         <div className="p-4 flex items-center justify-between">
-          <div className="w-9 h-9 bg-surface-900 flex items-center justify-center">
-            <span className="text-accent font-display text-lg">L</span>
+          <div className="w-8 h-8 bg-surface-900 flex items-center justify-center">
+            <span className="text-accent font-display text-base">L</span>
           </div>
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
-            className="text-surface-400 hover:text-surface-600 transition-colors"
+            className="text-surface-400 hover:text-surface-600 transition-colors p-1"
             aria-label="Collapse sidebar"
             tabIndex={overlayTabIndex}
           >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M15 19l-7-7 7-7"
-              />
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
         </div>
 
-        <div className="px-4 pb-2 flex items-center justify-between">
-          <span className="font-mono text-xs uppercase tracking-wide text-surface-500">
-            Saved Drafts
+        {/* New Hypothesis Button */}
+        <div className="px-3 pb-4">
+          <button
+            type="button"
+            onClick={() => {
+              handleStartOver();
+              if (searchParams.get("continue")) {
+                router.replace("/hypothesize");
+              }
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-surface-600 hover:text-surface-900 hover:bg-black/[0.04] rounded-md transition-colors"
+            tabIndex={overlayTabIndex}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+            </svg>
+            New hypothesis
+          </button>
+        </div>
+
+        {/* Saved Section */}
+        <div className="px-4 pb-1">
+          <span className="text-[11px] font-medium uppercase tracking-wider text-surface-400">
+            Saved
           </span>
         </div>
-        <div className="px-2 pb-4">
+        <div className="px-2 pb-3">
           <RecentHypotheses
             onSelect={(hypothesis: HypothesisListItem) => {
               router.push(`/hypothesize?continue=${hypothesis.id}`);
             }}
-            onDelete={() => {
-              // Refresh will happen automatically in RecentHypotheses
-            }}
-            maxItems={5}
+            onDelete={() => {}}
+            pageSize={10}
           />
         </div>
 
-        <div className="px-4 pb-2 flex items-center justify-between border-t border-surface-200 pt-4">
-          <span className="font-mono text-xs uppercase tracking-wide text-surface-500">
-            History
-          </span>
-          {chatHistory.length > 0 && (
-            <button
-              type="button"
-              onClick={clearHistory}
-              className="text-xs font-mono uppercase tracking-wide text-surface-400 hover:text-surface-600 transition-colors"
-              tabIndex={overlayTabIndex}
-            >
-              Clear
-            </button>
-          )}
-        </div>
-        <div className="flex-1 overflow-y-auto px-2 pb-4">
+        {/* Divider */}
+        <div className="mx-3 border-t border-black/[0.06]" />
+
+        {/* History Section */}
+        <div className="flex-1 overflow-y-auto">
           {chatHistory.length === 0 ? (
-            <p className="text-xs text-surface-400 text-center py-4">
+            <p className="text-xs text-surface-400 text-center py-6">
               No history yet
             </p>
           ) : (
-            <div className="space-y-1">
-              {chatHistory.map((session) => (
-                <button
-                  key={session.id}
-                  type="button"
-                  className="w-full text-left p-3 hover:bg-surface-200 transition-colors rounded text-sm"
-                  tabIndex={overlayTabIndex}
-                >
-                  <p className="text-surface-700 truncate">{session.query}</p>
-                  <p className="text-xs text-surface-400 mt-1">
-                    {agentCards.find((a) => a.value === session.agent)?.label} ·{" "}
-                    {session.timestamp.toLocaleDateString()}
-                  </p>
-                </button>
-              ))}
+            <div className="py-2">
+              {timeGroupOrder.map((group) => {
+                const sessions = groupedHistory.get(group);
+                if (!sessions || sessions.length === 0) return null;
+                return (
+                  <div key={group} className="mb-2">
+                    <div className="px-4 py-1.5">
+                      <span className="text-[11px] font-medium uppercase tracking-wider text-surface-400">
+                        {group}
+                      </span>
+                    </div>
+                    <div className="px-2 space-y-0.5">
+                      {sessions.map((session) => (
+                        <button
+                          key={session.id}
+                          type="button"
+                          onClick={() => handleHistorySelect(session)}
+                          className={`w-full text-left px-3 py-2 rounded transition-colors ${
+                            edisonRunId === session.id
+                              ? "bg-black/[0.06]"
+                              : "hover:bg-black/[0.04]"
+                          }`}
+                          tabIndex={overlayTabIndex}
+                        >
+                          <p className="text-sm text-surface-700 truncate">
+                            {truncateText(session.query, 100)}
+                          </p>
+                          <p className="text-xs text-surface-400 mt-0.5">
+                            {
+                              agentCards.find(
+                                (a) => a.value === session.agent,
+                              )?.label
+                            }
+                            {group === "Today" &&
+                              ` · ${formatTime(session.timestamp)}`}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Sentinel for infinite scroll */}
+              <div ref={historySentinelRef} className="h-1" />
+
+              {/* Loading more indicator */}
+              {isHistoryLoadingMore && (
+                <div className="flex justify-center py-3">
+                  <div className="w-4 h-4 animate-spin rounded-full border-b-2 border-surface-400" />
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        <div className="mt-auto border-t border-surface-200 px-2 py-3 space-y-1">
-          {sidebarItems.map((item) => (
+        {/* Footer */}
+        <div className="border-t border-black/[0.06] px-2 py-2 flex items-center justify-between">
+          <div className="flex items-center gap-1">
+            {sidebarItems.slice(0, 3).map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                title={item.label}
+                aria-label={item.label}
+                className="p-2 text-surface-400 hover:text-surface-600 hover:bg-black/[0.04] rounded transition-colors"
+                tabIndex={overlayTabIndex}
+              >
+                {item.icon}
+              </button>
+            ))}
+          </div>
+          {chatHistory.length > 0 && (
             <button
-              key={item.label}
               type="button"
-              title={item.label}
-              aria-label={item.label}
-              className="w-full flex items-center gap-3 px-2 py-2 text-sm text-surface-500 hover:text-surface-700 hover:bg-surface-200 rounded transition-colors"
+              onClick={clearHistory}
+              title="Clear history"
+              className="p-2 text-surface-400 hover:text-red-500 hover:bg-black/[0.04] rounded transition-colors"
               tabIndex={overlayTabIndex}
             >
-              {item.icon}
-              <span className="text-xs font-mono uppercase tracking-wide">
-                {item.label}
-              </span>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
             </button>
-          ))}
+          )}
         </div>
       </aside>
 
