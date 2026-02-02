@@ -3,19 +3,20 @@ Tests for Edison client response coercion.
 """
 
 from backend.services.edison_client import MockEdisonClient
+from backend.types import JsonObject
 
 
 class DummyVerboseResponse:
-    def __init__(self, environment_frame: dict):
+    def __init__(self, environment_frame: JsonObject):
         self.status = "success"
-        self.metadata = {}
+        self.metadata: JsonObject = {}
         self.task_id = "task-123"
         self.environment_frame = environment_frame
 
 
-def test_coerce_task_response_extracts_answer_from_environment_frame():
+def test_coerce_task_response_extracts_answer_from_environment_frame() -> None:
     client = MockEdisonClient()
-    environment_frame = {
+    environment_frame: JsonObject = {
         "state": {
             "state": {
                 "response": {
