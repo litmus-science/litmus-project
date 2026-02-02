@@ -26,6 +26,10 @@ export type RateLimitInfo = {
   reset?: string;
 };
 
+type RequestOptions = {
+  signal?: AbortSignal;
+};
+
 export type ValidationIssue = {
   path: string;
   code: string;
@@ -283,7 +287,10 @@ export async function submitResults(
 }
 
 // Cost estimate
-export async function estimateCost(data: Record<string, unknown>): Promise<{
+export async function estimateCost(
+  data: Record<string, unknown>,
+  options?: RequestOptions
+): Promise<{
   estimated_cost_usd: { low: number; typical: number; high: number };
   estimated_turnaround_days: { standard: number; expedited?: number };
   operator_availability: string;
@@ -291,6 +298,7 @@ export async function estimateCost(data: Record<string, unknown>): Promise<{
   return request(`/estimate`, {
     method: "POST",
     body: JSON.stringify(data),
+    signal: options?.signal,
   });
 }
 
@@ -386,18 +394,25 @@ export async function listHypotheses(params?: {
   experiment_type?: string;
   limit?: number;
   cursor?: string;
-}): Promise<HypothesisListResponse> {
+}, options?: RequestOptions): Promise<HypothesisListResponse> {
   const searchParams = new URLSearchParams();
   if (params?.status) searchParams.set("status", params.status);
   if (params?.experiment_type) searchParams.set("experiment_type", params.experiment_type);
   if (params?.limit) searchParams.set("limit", params.limit.toString());
   if (params?.cursor) searchParams.set("cursor", params.cursor);
   const query = searchParams.toString();
-  return request<HypothesisListResponse>(`/hypotheses${query ? `?${query}` : ""}`);
+  return request<HypothesisListResponse>(`/hypotheses${query ? `?${query}` : ""}`, {
+    signal: options?.signal,
+  });
 }
 
-export async function getHypothesis(id: string): Promise<HypothesisResponse> {
-  return request<HypothesisResponse>(`/hypotheses/${id}`);
+export async function getHypothesis(
+  id: string,
+  options?: RequestOptions
+): Promise<HypothesisResponse> {
+  return request<HypothesisResponse>(`/hypotheses/${id}`, {
+    signal: options?.signal,
+  });
 }
 
 export async function updateHypothesis(

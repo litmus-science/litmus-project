@@ -8,6 +8,8 @@ export type ExperimentStatus =
   | "disputed"
   | "cancelled";
 
+export type HypothesisStatus = "draft" | "used" | "archived";
+
 export type PaymentStatus = "pending" | "escrowed" | "released" | "refunded";
 
 export type ConfidenceLevel = "high" | "medium" | "low" | "inconclusive";
@@ -289,7 +291,7 @@ export interface HypothesisResponse {
   statement: string;
   null_hypothesis?: string;
   experiment_type?: string;
-  status: string;
+  status: HypothesisStatus;
   edison_agent?: string;
   edison_query?: string;
   edison_response?: Record<string, unknown>;
@@ -304,7 +306,7 @@ export interface HypothesisListItem {
   title: string;
   statement: string;
   experiment_type?: string;
-  status: string;
+  status: HypothesisStatus;
   created_at: string;
 }
 
@@ -314,7 +316,7 @@ export interface HypothesisListResponse {
 }
 
 export interface HypothesisToExperimentRequest {
-  budget_max_usd: number;
+  budget_max_usd?: number;
   bsl_level?: string;
   privacy?: string;
   title_override?: string;
