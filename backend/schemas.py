@@ -31,6 +31,12 @@ class PaymentStatus(str, Enum):
     REFUNDED = "refunded"
 
 
+class HypothesisStatus(str, Enum):
+    DRAFT = "draft"
+    USED = "used"
+    ARCHIVED = "archived"
+
+
 class ConfidenceLevel(str, Enum):
     HIGH = "high"
     MEDIUM = "medium"
@@ -493,6 +499,7 @@ class HypothesisResponse(BaseModel):
     statement: str
     null_hypothesis: Optional[str]
     experiment_type: str
+    status: HypothesisStatus
     edison_agent: Optional[str]
     edison_query: Optional[str]
     edison_response: Optional[JsonDict]
@@ -509,7 +516,7 @@ class HypothesisListItem(BaseModel):
     title: str
     statement: str
     experiment_type: str
-    status: str
+    status: HypothesisStatus
     created_at: datetime
 
     model_config = {"from_attributes": True}
