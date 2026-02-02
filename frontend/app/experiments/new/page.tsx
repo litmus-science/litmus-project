@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import {
@@ -45,6 +45,7 @@ function NewExperimentPageContent() {
     typical: number;
     high: number;
   } | null>(null);
+  const hypothesisRequestRef = useRef<AbortController | null>(null);
 
   // Hypothesis picker state
   const [showPicker, setShowPicker] = useState(false);
@@ -74,6 +75,13 @@ function NewExperimentPageContent() {
 
   const experimentType = watch("experiment_type");
 
+  useEffect(() => {
+    return () => {
+      hypothesisRequestRef.current?.abort();
+      hypothesisRequestRef.current = null;
+    };
+  }, []);
+
   // Pre-fill form from hypothesis (defined before useEffects that use it)
   const prefillFromHypothesis = useCallback((hypothesis: HypothesisResponse) => {
     const formType = hypothesis.experiment_type
@@ -99,25 +107,53 @@ function NewExperimentPageContent() {
     }
 
     const hypothesisId = searchParams.get("hypothesisId");
-    if (hypothesisId) {
-      getHypothesis(hypothesisId)
-        .then((hypothesis) => {
-          prefillFromHypothesis(hypothesis);
-          setSelectedHypothesis(hypothesis);
-        })
-        .catch((err) => {
-          console.error("Failed to load hypothesis:", err);
-          setError("Failed to load hypothesis from URL");
-        });
-    }
+    if (!hypothesisId) return;
+
+    hypothesisRequestRef.current?.abort();
+    const controller = new AbortController();
+    hypothesisRequestRef.current = controller;
+
+    getHypothesis(hypothesisId, { signal: controller.signal })
+      .then((hypothesis) => {
+        prefillFromHypothesis(hypothesis);
+        setSelectedHypothesis(hypothesis);
+      })
+      .catch((err) => {
+        if (err instanceof Error && err.name === "AbortError") {
+          return;
+        }
+        console.error("Failed to load hypothesis:", err);
+        setError("Failed to load hypothesis from URL");
+      })
+      .finally(() => {
+        if (hypothesisRequestRef.current === controller) {
+          hypothesisRequestRef.current = null;
+        }
+      });
+
+    return () => {
+      if (hypothesisRequestRef.current === controller) {
+        controller.abort();
+        hypothesisRequestRef.current = null;
+      }
+    };
   }, [isAuthenticated, router, searchParams, prefillFromHypothesis]);
 
   useEffect(() => {
-    if (experimentType) {
-      estimateCost({ experiment_type: experimentType })
-        .then((data) => setEstimate(data.estimated_cost_usd))
-        .catch(() => setEstimate(null));
-    }
+    if (!experimentType) return;
+    const controller = new AbortController();
+    estimateCost({ experiment_type: experimentType }, { signal: controller.signal })
+      .then((data) => setEstimate(data.estimated_cost_usd))
+      .catch((err) => {
+        if (err instanceof Error && err.name === "AbortError") {
+          return;
+        }
+        setEstimate(null);
+      });
+
+    return () => {
+      controller.abort();
+    };
   }, [experimentType]);
 
   useEffect(() => {
@@ -129,14 +165,25 @@ function NewExperimentPageContent() {
 
   // Handle hypothesis selection from picker
   const handleHypothesisSelect = async (item: HypothesisListItem) => {
+    const controller = new AbortController();
     try {
-      const hypothesis = await getHypothesis(item.id);
+      hypothesisRequestRef.current?.abort();
+      hypothesisRequestRef.current = controller;
+
+      const hypothesis = await getHypothesis(item.id, { signal: controller.signal });
       prefillFromHypothesis(hypothesis);
       setSelectedHypothesis(hypothesis);
       setShowPicker(false);
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
       console.error("Failed to load hypothesis:", err);
       setError("Failed to load hypothesis details");
+    } finally {
+      if (hypothesisRequestRef.current === controller) {
+        hypothesisRequestRef.current = null;
+      }
     }
   };
 

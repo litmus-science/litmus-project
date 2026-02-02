@@ -1,26 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { listHypotheses, ApiError } from "@/lib/api";
 import type { HypothesisListItem } from "@/lib/types";
+import { EXPERIMENT_TYPE_LABELS, getExperimentTypeLabel } from "@/lib/experimentTypeLabels";
 
 interface HypothesisPickerProps {
   isOpen: boolean;
   onClose: () => void;
   onSelect: (hypothesis: HypothesisListItem) => void;
 }
-
-const experimentTypeLabels: Record<string, string> = {
-  SANGER_PLASMID_VERIFICATION: "Sanger Sequencing",
-  QPCR_EXPRESSION: "qPCR Expression",
-  CELL_VIABILITY_IC50: "Cell Viability IC50",
-  ENZYME_INHIBITION_IC50: "Enzyme Inhibition IC50",
-  MICROBIAL_GROWTH_MATRIX: "Microbial Growth",
-  MIC_MBC_ASSAY: "MIC/MBC Assay",
-  ZONE_OF_INHIBITION: "Zone of Inhibition",
-  CUSTOM: "Custom Protocol",
-};
 
 const experimentTypeColors: Record<string, string> = {
   SANGER_PLASMID_VERIFICATION: "bg-blue-50 text-blue-700 border-blue-200",
@@ -45,8 +35,13 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
   const [filterType, setFilterType] = useState<string>("all");
   const [hasMore, setHasMore] = useState(false);
   const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const requestController = useRef<AbortController | null>(null);
 
   const fetchHypotheses = useCallback(async ({ reset = false, cursor: nextCursor }: { reset?: boolean; cursor?: string } = {}) => {
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
+
     setLoading(true);
     setError("");
 
@@ -59,7 +54,7 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
         params.cursor = nextCursor;
       }
 
-      const response = await listHypotheses(params);
+      const response = await listHypotheses(params, { signal: controller.signal });
 
       if (reset) {
         setHypotheses(response.hypotheses);
@@ -70,13 +65,19 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
       setHasMore(response.pagination.has_more);
       setCursor(response.pagination.cursor);
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
         setError(err instanceof Error ? err.message : "Failed to load hypotheses");
       }
     } finally {
-      setLoading(false);
+      if (requestController.current === controller) {
+        requestController.current = null;
+        setLoading(false);
+      }
     }
   }, [filterType]);
 
@@ -85,6 +86,13 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
       fetchHypotheses({ reset: true });
     }
   }, [isOpen, filterType, fetchHypotheses]);
+
+  useEffect(() => {
+    return () => {
+      requestController.current?.abort();
+      requestController.current = null;
+    };
+  }, []);
 
   const handleSelect = useCallback(
     (hypothesis: HypothesisListItem) => {
@@ -147,7 +155,7 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
             className="input text-sm py-2"
           >
             <option value="all">All Experiment Types</option>
-            {Object.entries(experimentTypeLabels).map(([key, label]) => (
+            {Object.entries(EXPERIMENT_TYPE_LABELS).map(([key, label]) => (
               <option key={key} value={key}>
                 {label}
               </option>
@@ -203,7 +211,7 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
                           experimentTypeColors.CUSTOM
                         }`}
                       >
-                        {experimentTypeLabels[hypothesis.experiment_type] || hypothesis.experiment_type}
+                        {getExperimentTypeLabel(hypothesis.experiment_type)}
                       </span>
                     )}
                   </div>

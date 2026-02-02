@@ -17,6 +17,7 @@ import type {
 import { SaveHypothesisButton } from "@/components/SaveHypothesisButton";
 import { RecentHypotheses } from "@/components/RecentHypotheses";
 import { MIN_HYPOTHESIS_LENGTH } from "@/lib/hypothesisValidation";
+import { getExperimentTypeLabel } from "@/lib/experimentTypeLabels";
 
 type FlowState =
   | "INITIAL"
@@ -118,22 +119,12 @@ const sidebarItems = [
   },
 ];
 
-const experimentTypeLabels: Record<string, string> = {
-  SANGER_PLASMID_VERIFICATION: "Sanger Sequencing",
-  QPCR_EXPRESSION: "qPCR Expression",
-  CELL_VIABILITY_IC50: "Cell Viability IC50",
-  ENZYME_INHIBITION_IC50: "Enzyme Inhibition IC50",
-  MICROBIAL_GROWTH_MATRIX: "Microbial Growth",
-  MIC_MBC_ASSAY: "MIC/MBC Assay",
-  ZONE_OF_INHIBITION: "Zone of Inhibition",
-  CUSTOM: "Custom Protocol",
-};
-
 const processingSteps = ["Querying Edison...", "Analyzing results...", "Generating hypothesis..."];
 const chatHistoryLimit = 20;
 const edisonResponseStorageKey = "hypothesize-edison-response";
 const edisonEditsStorageKey = "hypothesize-edison-edits";
 const edisonIntakeIdStorageKey = "hypothesize-intake-id";
+const edisonEditsPersistDelayMs = 300;
 
 interface UploadedFile {
   file: File;
@@ -310,6 +301,20 @@ function HypothesizePageContent() {
   useEffect(() => {
     if (edisonResponse) {
       localStorage.setItem(edisonResponseStorageKey, JSON.stringify(edisonResponse));
+      return;
+    }
+    localStorage.removeItem(edisonResponseStorageKey);
+  }, [edisonResponse]);
+
+  // Persist edits with debounce
+  useEffect(() => {
+    if (!edisonResponse) {
+      localStorage.removeItem(edisonEditsStorageKey);
+      localStorage.removeItem(edisonIntakeIdStorageKey);
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
       localStorage.setItem(
         edisonEditsStorageKey,
         JSON.stringify({
@@ -319,12 +324,12 @@ function HypothesizePageContent() {
       );
       if (intakeId) {
         localStorage.setItem(edisonIntakeIdStorageKey, intakeId);
+      } else {
+        localStorage.removeItem(edisonIntakeIdStorageKey);
       }
-      return;
-    }
-    localStorage.removeItem(edisonResponseStorageKey);
-    localStorage.removeItem(edisonEditsStorageKey);
-    localStorage.removeItem(edisonIntakeIdStorageKey);
+    }, edisonEditsPersistDelayMs);
+
+    return () => clearTimeout(timeoutId);
   }, [edisonResponse, editedHypothesis, editedNullHypothesis, intakeId]);
 
   // Update cost estimate when we have experiment type
@@ -763,6 +768,18 @@ function HypothesizePageContent() {
                 <p className="text-sm text-surface-500 mt-1">
                   An AI scientist for complex questions.
                 </p>
+                <a
+                  href="https://platform.edisonscientific.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 mt-2 text-xs text-surface-400 hover:text-surface-600 transition-colors group"
+                >
+                  <span className="font-mono uppercase tracking-wide">Powered by</span>
+                  <span className="font-medium text-surface-500 group-hover:text-accent transition-colors">Edison Scientific</span>
+                  <svg className="w-3 h-3 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-xs font-mono uppercase tracking-wide text-surface-400">
@@ -801,19 +818,25 @@ function HypothesizePageContent() {
 
                 {/* Query Textarea */}
                 <div className="relative">
-                  <label htmlFor="hypothesize-query" className="sr-only">
-                    Enter your query
+                  <label htmlFor="hypothesize-query" className="text-xs font-mono uppercase tracking-wide text-surface-500 mb-2 block">
+                    Research Query
                   </label>
                   <textarea
                     id="hypothesize-query"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    rows={7}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && query.trim()) {
+                        e.preventDefault();
+                        handleGenerate();
+                      }
+                    }}
+                    rows={5}
                     maxLength={10000}
-                    placeholder="Enter your query..."
-                    className="w-full min-h-[220px] resize-none rounded-lg bg-transparent px-4 py-3 pr-20 text-lg text-surface-800 placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface-100"
+                    placeholder='e.g., "What compounds show promise for treating antibiotic-resistant bacteria?"'
+                    className="w-full min-h-[160px] resize-none rounded-lg bg-transparent px-4 py-3 pr-20 text-lg text-surface-800 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface-100"
                   />
-                  <span className={`absolute right-4 top-4 text-xs font-mono ${charCount > 9000 ? "text-accent" : "text-surface-400"}`}>
+                  <span className={`absolute right-4 top-10 text-xs font-mono ${charCount > 9000 ? "text-accent" : "text-surface-400"}`}>
                     {charCount.toLocaleString()} / 10,000
                   </span>
                 </div>
@@ -824,10 +847,10 @@ function HypothesizePageContent() {
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
-                    className={`border rounded-lg p-4 transition-colors ${
+                    className={`border border-dashed rounded-lg p-4 transition-colors ${
                       isDragging
                         ? "border-accent bg-accent-50"
-                        : "border-surface-200 bg-surface-50 hover:border-surface-300"
+                        : "border-surface-300 bg-surface-50/50 hover:border-surface-400 hover:bg-surface-50"
                     }`}
                   >
                     <div className="flex items-center gap-4">
@@ -838,7 +861,8 @@ function HypothesizePageContent() {
                       </div>
                       <div className="flex-1">
                         <label className="cursor-pointer">
-                          <span className="font-medium text-surface-700">Drag Here or Click to Upload</span>
+                          <span className="text-sm text-surface-600">Attach files</span>
+                          <span className="text-xs text-surface-400 ml-1">(optional)</span>
                           <input
                             type="file"
                             multiple
@@ -847,7 +871,7 @@ function HypothesizePageContent() {
                             accept=".pdf,.doc,.docx,.txt,.csv,.png,.jpg,.jpeg"
                           />
                         </label>
-                        <p className="text-xs text-surface-400 font-mono mt-1">Max 15GB in total</p>
+                        <p className="text-[10px] text-surface-400 font-mono mt-0.5">PDF, DOC, CSV, images · Max 15GB</p>
                       </div>
                     </div>
 
@@ -880,7 +904,7 @@ function HypothesizePageContent() {
                   </div>
 
                   {/* Agent + Start */}
-                  <div className="border border-surface-200 bg-surface-50 rounded-lg p-4 flex flex-col justify-center gap-3 min-h-[88px]">
+                  <div className="border border-surface-200 bg-surface-50 rounded-lg p-4 flex flex-col justify-center gap-2 min-h-[88px]">
                     <div className="flex items-center justify-between">
                       <div>
                         <span className="text-xs font-mono uppercase tracking-wide text-surface-400">Agent</span>
@@ -900,12 +924,15 @@ function HypothesizePageContent() {
                         </svg>
                       </button>
                     </div>
+                    <p className="text-[10px] font-mono text-surface-400 text-right">
+                      ⌘ + Enter
+                    </p>
                   </div>
                 </div>
               </div>
 
               <p className="text-sm text-surface-500 text-center">
-                New to our Edison agent? Check out our{" "}
+                New to Edison Scientific? Check out our{" "}
                 <button
                   type="button"
                   onClick={() => router.push("/templates")}
@@ -978,7 +1005,7 @@ function HypothesizePageContent() {
                       Experiment Type
                     </span>
                     <p className="text-lg font-medium text-surface-900">
-                      {experimentTypeLabels[edisonResponse.experiment_type] || edisonResponse.experiment_type}
+                      {getExperimentTypeLabel(edisonResponse.experiment_type)}
                     </p>
                   </div>
                   {confidenceBadge}
@@ -1105,7 +1132,7 @@ function HypothesizePageContent() {
                   Creating Experiment
                 </span>
                 <p className="text-lg font-medium text-surface-900">
-                  {experimentTypeLabels[edisonResponse.experiment_type] || edisonResponse.experiment_type}
+                  {getExperimentTypeLabel(edisonResponse.experiment_type)}
                 </p>
               </div>
 
