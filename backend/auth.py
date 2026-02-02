@@ -50,6 +50,7 @@ class TokenData(BaseModel):
     user_id: str
     email: str
     role: str
+    rate_limit_tier: str
     exp: datetime
 
 
@@ -109,6 +110,7 @@ def decode_token(token: str) -> TokenData | None:
             user_id=cast(str, payload.get("sub")),
             email=cast(str, payload.get("email")),
             role=cast(str, payload.get("role", "requester")),
+            rate_limit_tier=cast(str, payload.get("rate_limit_tier", "standard")),
             exp=datetime.fromtimestamp(cast(float, payload.get("exp"))),
         )
     except JWTError:

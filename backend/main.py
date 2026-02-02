@@ -30,9 +30,11 @@ from backend.auth import (
     AuthUser,
     authenticate_user,
     create_access_token,
+    decode_token,
     get_current_operator,
     get_current_user,
     get_password_hash,
+    get_rate_limit,
     get_user_by_id,
     hash_api_key,
 )
@@ -169,15 +171,6 @@ if not _cors_origins:
             "https://docs.litmus.science",
         ]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_origin_regex=_cors_origin_regex,
-    allow_credentials=not _dev_mode,  # Can't use credentials with "*" origins
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID"],
-)
-
 
 # =============================================================================
 # Rate Limiting Middleware
@@ -187,12 +180,6 @@ app.add_middleware(
 _rate_limit_storage: dict[str, dict[str, list[float]]] = defaultdict(
     lambda: {"minute": [], "day": []}
 )
-
-RATE_LIMITS: dict[str, dict[str, int]] = {
-    "standard": {"per_minute": 100, "per_day": 1000},
-    "pro": {"per_minute": 1000, "per_day": 10000},
-    "ai_agent": {"per_minute": 500, "per_day": 5000},
-}
 
 
 def _as_object(value: JsonValue | None) -> JsonObject:
@@ -222,18 +209,33 @@ async def rate_limit_middleware(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
 ) -> Response:
     """Enforce rate limits based on user tier."""
-    # Skip rate limiting for health checks and docs
-    if request.url.path in ("/health", "/docs", "/redoc", "/openapi.json"):
+    # Skip rate limiting for health checks/docs, dev-mode traffic, and CORS preflight.
+    if (
+        request.url.path in ("/health", "/docs", "/redoc", "/openapi.json")
+        or _dev_mode
+        or request.method == "OPTIONS"
+    ):
         return await call_next(request)
 
-    # Get client identifier (API key or IP as fallback)
+    # Identify the caller. Prefer authenticated identity over IP.
     api_key = request.headers.get("X-API-Key", "")
-    client_id = api_key if api_key else request.client.host if request.client else "unknown"
+    authorization = request.headers.get("Authorization", "")
+    token = ""
+    if authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+    token_data = decode_token(token) if token else None
 
-    # Default to standard tier (in production, look up tier from database)
-    tier = "standard"
+    if token_data:
+        client_id = token_data.user_id
+    elif api_key:
+        client_id = f"api_key:{hash_api_key(api_key)}"
+    elif request.client:
+        client_id = request.client.host
+    else:
+        client_id = "unknown"
 
-    limits = RATE_LIMITS.get(tier, RATE_LIMITS["standard"])
+    tier = token_data.rate_limit_tier if token_data else "standard"
+    limits = get_rate_limit(tier)
     now = time.time()
     minute_ago = now - 60
     day_ago = now - 86400
@@ -285,6 +287,17 @@ async def rate_limit_middleware(
     response.headers["X-RateLimit-Remaining"] = str(limits["per_minute"] - minute_count - 1)
 
     return response
+
+
+# Add CORS middleware after functional middleware so it can attach headers to all responses.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_origin_regex=_cors_origin_regex,
+    allow_credentials=not _dev_mode,  # Can't use credentials with "*" origins
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID"],
+)
 
 
 # Helper functions
@@ -657,7 +670,12 @@ async def login(
         )
 
     access_token = create_access_token(
-        data={"sub": user.id, "email": user.email, "role": user.role}
+        data={
+            "sub": user.id,
+            "email": user.email,
+            "role": user.role,
+            "rate_limit_tier": user.rate_limit_tier,
+        }
     )
     return schemas.Token(access_token=access_token)
 
