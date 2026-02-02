@@ -36,7 +36,7 @@ interface SubmitForm {
 export default function SubmitResultsPage() {
   const router = useRouter();
   const params = useParams();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, authChecked } = useAuth();
   const [experiment, setExperiment] = useState<Experiment | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -71,6 +71,9 @@ export default function SubmitResultsPage() {
   } = useFieldArray({ control, name: "photos" });
 
   useEffect(() => {
+    if (!authChecked) {
+      return;
+    }
     if (!isAuthenticated()) {
       router.push("/login");
       return;
@@ -90,7 +93,7 @@ export default function SubmitResultsPage() {
     }
 
     fetchExperiment();
-  }, [isAuthenticated, router, experimentId]);
+  }, [authChecked, isAuthenticated, router, experimentId]);
 
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {

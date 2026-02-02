@@ -24,7 +24,7 @@ const bslLevels = [
 
 export default function OperatorJobsPage() {
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, authChecked } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -32,6 +32,9 @@ export default function OperatorJobsPage() {
   const [bslFilter, setBslFilter] = useState("");
 
   useEffect(() => {
+    if (!authChecked) {
+      return;
+    }
     if (!isAuthenticated()) {
       router.push("/login");
       return;
@@ -55,7 +58,7 @@ export default function OperatorJobsPage() {
     }
 
     fetchJobs();
-  }, [isAuthenticated, router, categoryFilter, bslFilter]);
+  }, [authChecked, isAuthenticated, router, categoryFilter, bslFilter]);
 
   if (loading) {
     return (

@@ -19,7 +19,7 @@ const statusFilters: { label: string; value: ExperimentStatus | "all" }[] = [
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, authChecked } = useAuth();
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -28,6 +28,9 @@ export default function DashboardPage() {
   );
 
   useEffect(() => {
+    if (!authChecked) {
+      return;
+    }
     if (!isAuthenticated()) {
       router.push("/login");
       return;
@@ -49,7 +52,7 @@ export default function DashboardPage() {
     }
 
     fetchExperiments();
-  }, [isAuthenticated, router, statusFilter]);
+  }, [authChecked, isAuthenticated, router, statusFilter]);
 
   if (loading) {
     return (

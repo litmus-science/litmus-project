@@ -12,7 +12,7 @@ import { formatUsd } from "@/lib/format";
 export default function ExperimentDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, authChecked } = useAuth();
   const [experiment, setExperiment] = useState<Experiment | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -21,6 +21,9 @@ export default function ExperimentDetailPage() {
   const experimentId = params.id as string;
 
   useEffect(() => {
+    if (!authChecked) {
+      return;
+    }
     if (!isAuthenticated()) {
       router.push("/login");
       return;
@@ -40,7 +43,7 @@ export default function ExperimentDetailPage() {
     }
 
     fetchExperiment();
-  }, [isAuthenticated, router, experimentId]);
+  }, [authChecked, isAuthenticated, router, experimentId]);
 
   const handleCancel = async () => {
     const reason = prompt("Please provide a reason for cancellation:");

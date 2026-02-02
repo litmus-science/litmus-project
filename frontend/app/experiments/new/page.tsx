@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import {
@@ -37,7 +37,12 @@ const backendToFormTypeMap: Record<string, string> = {
 function NewExperimentPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isAuthenticated } = useAuth();
+  const searchKey = searchParams.toString();
+  const hypothesisId = useMemo(
+    () => new URLSearchParams(searchKey).get("hypothesisId"),
+    [searchKey],
+  );
+  const { isAuthenticated, authChecked } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [estimate, setEstimate] = useState<{
@@ -108,11 +113,13 @@ function NewExperimentPageContent() {
 
   // Handle URL param ?hypothesisId={id}
   useEffect(() => {
+    if (!authChecked) {
+      return;
+    }
     if (!isAuthenticated()) {
       router.push("/login");
     }
 
-    const hypothesisId = searchParams.get("hypothesisId");
     if (!hypothesisId) return;
 
     hypothesisRequestRef.current?.abort();
@@ -143,7 +150,7 @@ function NewExperimentPageContent() {
         hypothesisRequestRef.current = null;
       }
     };
-  }, [isAuthenticated, router, searchParams, prefillFromHypothesis]);
+  }, [authChecked, isAuthenticated, router, hypothesisId, prefillFromHypothesis]);
 
   useEffect(() => {
     if (!experimentType) return;

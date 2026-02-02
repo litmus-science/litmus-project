@@ -18,7 +18,7 @@ const categories = [
 
 export default function TemplatesPage() {
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, authChecked } = useAuth();
   const [templates, setTemplates] = useState<TemplateListItem[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(
     null,
@@ -29,6 +29,9 @@ export default function TemplatesPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
 
   useEffect(() => {
+    if (!authChecked) {
+      return;
+    }
     if (!isAuthenticated()) {
       router.push("/login");
       return;
@@ -52,7 +55,7 @@ export default function TemplatesPage() {
     }
 
     fetchTemplates();
-  }, [isAuthenticated, router, categoryFilter]);
+  }, [authChecked, isAuthenticated, router, categoryFilter]);
 
   const handleSelectTemplate = async (templateId: string) => {
     setLoadingDetail(true);

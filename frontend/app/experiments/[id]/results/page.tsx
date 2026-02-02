@@ -21,7 +21,7 @@ const disputeReasons: { value: DisputeReason; label: string }[] = [
 export default function ResultsPage() {
   const router = useRouter();
   const params = useParams();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, authChecked } = useAuth();
   const [results, setResults] = useState<ExperimentResults | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -37,6 +37,9 @@ export default function ResultsPage() {
   const experimentId = params.id as string;
 
   useEffect(() => {
+    if (!authChecked) {
+      return;
+    }
     if (!isAuthenticated()) {
       router.push("/login");
       return;
@@ -54,7 +57,7 @@ export default function ResultsPage() {
     }
 
     fetchResults();
-  }, [isAuthenticated, router, experimentId]);
+  }, [authChecked, isAuthenticated, router, experimentId]);
 
   const handleApprove = async () => {
     setApproving(true);

@@ -20,7 +20,7 @@ interface ClaimForm {
 export default function JobDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, authChecked } = useAuth();
   const [experiment, setExperiment] = useState<Experiment | null>(null);
   const [loading, setLoading] = useState(true);
   const [claiming, setClaiming] = useState(false);
@@ -39,6 +39,9 @@ export default function JobDetailPage() {
   });
 
   useEffect(() => {
+    if (!authChecked) {
+      return;
+    }
     if (!isAuthenticated()) {
       router.push("/login");
       return;
@@ -56,7 +59,7 @@ export default function JobDetailPage() {
     }
 
     fetchExperiment();
-  }, [isAuthenticated, router, experimentId]);
+  }, [authChecked, isAuthenticated, router, experimentId]);
 
   const onSubmit = async (data: ClaimForm) => {
     setClaiming(true);

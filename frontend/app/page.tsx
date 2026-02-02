@@ -1,48 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { getConfig } from "@/lib/api";
 
 export default function Home() {
   const router = useRouter();
-  const { isAuthenticated, setAuth } = useAuth();
-  const [status, setStatus] = useState("Loading...");
+  const { isAuthenticated, authChecked, authDisabled } = useAuth();
 
   useEffect(() => {
-    async function checkAuth() {
-      setStatus("Checking configuration...");
+    if (!authChecked) return;
+    router.push(isAuthenticated() ? "/dashboard" : "/login");
+  }, [authChecked, isAuthenticated, router]);
 
-      try {
-        const cfg = await getConfig();
-
-        if (cfg.auth_disabled) {
-          setAuth("dev-token", {
-            id: "dev-user",
-            email: "dev@litmus.science",
-            name: "Development User",
-            organization: "Litmus Dev",
-            role: "admin",
-            rate_limit_tier: "pro",
-            created_at: new Date().toISOString(),
-          });
-          router.push("/dashboard");
-          return;
-        }
-      } catch {
-        setStatus("Connecting to server...");
-      }
-
-      if (isAuthenticated()) {
-        router.push("/dashboard");
-      } else {
-        router.push("/login");
-      }
-    }
-
-    checkAuth();
-  }, [isAuthenticated, router, setAuth]);
+  let status = "Loading...";
+  if (!authChecked) {
+    status = "Checking configuration...";
+  } else if (authDisabled) {
+    status = "Signing in...";
+  } else if (!isAuthenticated()) {
+    status = "Redirecting...";
+  }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen gap-8 p-8">
