@@ -125,6 +125,13 @@ SANGER_PLASMID_VERIFICATION, QPCR_EXPRESSION, CELL_VIABILITY_IC50, ENZYME_INHIBI
 - Optimize for performance, memory efficiency, and algorithmic complexity
 - Ensure thread safety for concurrent operations
 
+# Lessons Learned
+
+- Avoid recursive JSON type aliases for runtime models; use `pydantic.JsonValue` in `backend/types.py` to prevent Pydantic schema recursion errors.
+- When assigning lists of dicts into `JsonObject` fields, coerce to `list[JsonValue]` (or cast) to avoid mypy invariance issues.
+- Keep type stubs aligned with strict mypy: add `types-jsonschema`, `types-passlib`, and `types-python-jose` to dev dependencies.
+- Router linting relies on `.eslintrc.cjs` plus `@typescript-eslint/eslint-plugin` and `@typescript-eslint/parser` in `package.json`.
+
 # React `useEffect` Guidelines
 
 **Before using `useEffect`, read:**  
