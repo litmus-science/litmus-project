@@ -11,7 +11,10 @@ const disputeReasons: { value: DisputeReason; label: string }[] = [
   { value: "results_incomplete", label: "Results are incomplete" },
   { value: "results_incorrect", label: "Results appear incorrect" },
   { value: "protocol_not_followed", label: "Protocol was not followed" },
-  { value: "documentation_insufficient", label: "Documentation is insufficient" },
+  {
+    value: "documentation_insufficient",
+    label: "Documentation is insufficient",
+  },
   { value: "other", label: "Other" },
 ];
 
@@ -27,7 +30,8 @@ export default function ResultsPage() {
   const [showDisputeForm, setShowDisputeForm] = useState(false);
   const [rating, setRating] = useState(5);
   const [feedback, setFeedback] = useState("");
-  const [disputeReason, setDisputeReason] = useState<DisputeReason>("results_incomplete");
+  const [disputeReason, setDisputeReason] =
+    useState<DisputeReason>("results_incomplete");
   const [disputeDescription, setDisputeDescription] = useState("");
 
   const experimentId = params.id as string;
@@ -55,10 +59,15 @@ export default function ResultsPage() {
   const handleApprove = async () => {
     setApproving(true);
     try {
-      await approveResults(experimentId, { rating, feedback: feedback || undefined });
+      await approveResults(experimentId, {
+        rating,
+        feedback: feedback || undefined,
+      });
       router.push(`/experiments/${experimentId}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to approve results");
+      setError(
+        err instanceof Error ? err.message : "Failed to approve results",
+      );
     } finally {
       setApproving(false);
     }
@@ -123,7 +132,9 @@ export default function ResultsPage() {
 
       <div className="bg-white shadow rounded-lg">
         <div className="px-6 py-4 border-b border-gray-200">
-          <h1 className="text-xl font-bold text-gray-900">Experiment Results</h1>
+          <h1 className="text-xl font-bold text-gray-900">
+            Experiment Results
+          </h1>
         </div>
 
         <div className="px-6 py-4 space-y-6">
@@ -145,7 +156,8 @@ export default function ResultsPage() {
               </div>
               <div>
                 <p className="font-medium">
-                  Hypothesis {results.hypothesis_supported ? "Supported" : "Not Supported"}
+                  Hypothesis{" "}
+                  {results.hypothesis_supported ? "Supported" : "Not Supported"}
                 </p>
                 {results.confidence_level && (
                   <p className="text-sm text-gray-500">
@@ -159,44 +171,51 @@ export default function ResultsPage() {
           {/* Summary */}
           {results.summary && (
             <div>
-              <h2 className="text-sm font-medium text-gray-500 mb-2">Summary</h2>
+              <h2 className="text-sm font-medium text-gray-500 mb-2">
+                Summary
+              </h2>
               <p className="text-sm">{results.summary}</p>
             </div>
           )}
 
           {/* Measurements */}
-          {results.structured_data?.measurements && results.structured_data.measurements.length > 0 && (
-            <div>
-              <h2 className="text-sm font-medium text-gray-500 mb-2">Measurements</h2>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-2 px-2">Metric</th>
-                      <th className="text-left py-2 px-2">Value</th>
-                      <th className="text-left py-2 px-2">Unit</th>
-                      <th className="text-left py-2 px-2">Condition</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {results.structured_data.measurements.map((m, i) => (
-                      <tr key={i} className="border-b">
-                        <td className="py-2 px-2">{m.metric}</td>
-                        <td className="py-2 px-2">{m.value}</td>
-                        <td className="py-2 px-2">{m.unit || "-"}</td>
-                        <td className="py-2 px-2">{m.condition || "-"}</td>
+          {results.structured_data?.measurements &&
+            results.structured_data.measurements.length > 0 && (
+              <div>
+                <h2 className="text-sm font-medium text-gray-500 mb-2">
+                  Measurements
+                </h2>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2 px-2">Metric</th>
+                        <th className="text-left py-2 px-2">Value</th>
+                        <th className="text-left py-2 px-2">Unit</th>
+                        <th className="text-left py-2 px-2">Condition</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {results.structured_data.measurements.map((m, i) => (
+                        <tr key={i} className="border-b">
+                          <td className="py-2 px-2">{m.metric}</td>
+                          <td className="py-2 px-2">{m.value}</td>
+                          <td className="py-2 px-2">{m.unit || "-"}</td>
+                          <td className="py-2 px-2">{m.condition || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* Statistics */}
           {results.structured_data?.statistics && (
             <div>
-              <h2 className="text-sm font-medium text-gray-500 mb-2">Statistics</h2>
+              <h2 className="text-sm font-medium text-gray-500 mb-2">
+                Statistics
+              </h2>
               <div className="bg-gray-50 rounded p-3 text-sm space-y-1">
                 {results.structured_data.statistics.test_used && (
                   <p>Test: {results.structured_data.statistics.test_used}</p>
@@ -204,8 +223,12 @@ export default function ResultsPage() {
                 {results.structured_data.statistics.p_value !== undefined && (
                   <p>P-value: {results.structured_data.statistics.p_value}</p>
                 )}
-                {results.structured_data.statistics.effect_size !== undefined && (
-                  <p>Effect size: {results.structured_data.statistics.effect_size}</p>
+                {results.structured_data.statistics.effect_size !==
+                  undefined && (
+                  <p>
+                    Effect size:{" "}
+                    {results.structured_data.statistics.effect_size}
+                  </p>
                 )}
               </div>
             </div>
@@ -214,7 +237,9 @@ export default function ResultsPage() {
           {/* Raw Data Files */}
           {results.raw_data_files.length > 0 && (
             <div>
-              <h2 className="text-sm font-medium text-gray-500 mb-2">Raw Data Files</h2>
+              <h2 className="text-sm font-medium text-gray-500 mb-2">
+                Raw Data Files
+              </h2>
               <ul className="space-y-2">
                 {results.raw_data_files.map((file, i) => (
                   <li key={i}>
@@ -233,36 +258,45 @@ export default function ResultsPage() {
           )}
 
           {/* Documentation Photos */}
-          {results.documentation?.photos && results.documentation.photos.length > 0 && (
-            <div>
-              <h2 className="text-sm font-medium text-gray-500 mb-2">Documentation Photos</h2>
-              <div className="grid grid-cols-2 gap-2">
-                {results.documentation.photos.map((photo, i) => (
-                  <a
-                    key={i}
-                    href={photo.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={photo.url}
-                      alt={`Step ${photo.step}`}
-                      className="rounded border"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Step {photo.step}</p>
-                  </a>
-                ))}
+          {results.documentation?.photos &&
+            results.documentation.photos.length > 0 && (
+              <div>
+                <h2 className="text-sm font-medium text-gray-500 mb-2">
+                  Documentation Photos
+                </h2>
+                <div className="grid grid-cols-2 gap-2">
+                  {results.documentation.photos.map((photo, i) => (
+                    <a
+                      key={i}
+                      href={photo.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={photo.url}
+                        alt={`Step ${photo.step}`}
+                        className="rounded border"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Step {photo.step}
+                      </p>
+                    </a>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* Operator Notes */}
           {results.operator_notes && (
             <div>
-              <h2 className="text-sm font-medium text-gray-500 mb-2">Operator Notes</h2>
-              <p className="text-sm bg-gray-50 rounded p-3">{results.operator_notes}</p>
+              <h2 className="text-sm font-medium text-gray-500 mb-2">
+                Operator Notes
+              </h2>
+              <p className="text-sm bg-gray-50 rounded p-3">
+                {results.operator_notes}
+              </p>
             </div>
           )}
         </div>
@@ -329,7 +363,9 @@ export default function ResultsPage() {
                   </label>
                   <select
                     value={disputeReason}
-                    onChange={(e) => setDisputeReason(e.target.value as DisputeReason)}
+                    onChange={(e) =>
+                      setDisputeReason(e.target.value as DisputeReason)
+                    }
                     className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm"
                   >
                     {disputeReasons.map((r) => (

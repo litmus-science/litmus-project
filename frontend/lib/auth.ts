@@ -21,8 +21,8 @@ export const useAuth = create<AuthState>()(
     }),
     {
       name: "litmus-auth",
-    }
-  )
+    },
+  ),
 );
 
 export function getToken(): string | null {

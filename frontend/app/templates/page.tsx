@@ -20,7 +20,9 @@ export default function TemplatesPage() {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [templates, setTemplates] = useState<TemplateListItem[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [error, setError] = useState("");
@@ -35,11 +37,15 @@ export default function TemplatesPage() {
     async function fetchTemplates() {
       setLoading(true);
       try {
-        const params = categoryFilter ? { category: categoryFilter } : undefined;
+        const params = categoryFilter
+          ? { category: categoryFilter }
+          : undefined;
         const data = await listTemplates(params);
         setTemplates(data.templates);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load templates");
+        setError(
+          err instanceof Error ? err.message : "Failed to load templates",
+        );
       } finally {
         setLoading(false);
       }
@@ -70,7 +76,9 @@ export default function TemplatesPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-8">Protocol Templates</h1>
+      <h1 className="text-2xl font-bold text-gray-900 mb-8">
+        Protocol Templates
+      </h1>
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded mb-6">
@@ -139,7 +147,9 @@ export default function TemplatesPage() {
                 {selectedTemplate.name}
               </h2>
               {selectedTemplate.description && (
-                <p className="text-gray-600 mb-4">{selectedTemplate.description}</p>
+                <p className="text-gray-600 mb-4">
+                  {selectedTemplate.description}
+                </p>
               )}
 
               <div className="grid grid-cols-2 gap-4 mb-6">
@@ -180,7 +190,9 @@ export default function TemplatesPage() {
 
               {selectedTemplate.parameters.length > 0 && (
                 <div className="mb-6">
-                  <h3 className="text-sm font-medium text-gray-500 mb-2">Parameters</h3>
+                  <h3 className="text-sm font-medium text-gray-500 mb-2">
+                    Parameters
+                  </h3>
                   <div className="space-y-2">
                     {selectedTemplate.parameters.map((param, i) => (
                       <div key={i} className="bg-gray-50 rounded p-2 text-sm">

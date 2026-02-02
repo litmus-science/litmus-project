@@ -33,7 +33,7 @@ export default function LoginPage() {
       // Temporarily store token to fetch user
       localStorage.setItem(
         "litmus-auth",
-        JSON.stringify({ state: { token: token.access_token } })
+        JSON.stringify({ state: { token: token.access_token } }),
       );
       const user = await getMe();
       setAuth(token.access_token, user);
@@ -53,9 +53,7 @@ export default function LoginPage() {
             <div className="w-12 h-12 bg-surface-900 flex items-center justify-center mx-auto mb-6">
               <span className="text-accent font-display text-2xl">L</span>
             </div>
-            <h2 className="text-3xl font-display text-surface-900">
-              Sign In
-            </h2>
+            <h2 className="text-3xl font-display text-surface-900">Sign In</h2>
             <p className="mt-3 text-sm text-surface-500">
               Or{" "}
               <Link
@@ -68,11 +66,7 @@ export default function LoginPage() {
           </div>
 
           <form className="space-y-6" onSubmit={handleSubmit(onSubmit)}>
-            {error && (
-              <div className="alert-error">
-                {error}
-              </div>
-            )}
+            {error && <div className="alert-error">{error}</div>}
 
             <div>
               <label htmlFor="email" className="form-label">

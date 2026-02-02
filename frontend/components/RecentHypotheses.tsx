@@ -47,7 +47,9 @@ export function RecentHypotheses({
       const response = await listHypotheses({ limit: maxItems });
       setHypotheses(response.hypotheses);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load hypotheses");
+      setError(
+        err instanceof Error ? err.message : "Failed to load hypotheses",
+      );
     } finally {
       setLoading(false);
     }
@@ -69,12 +71,14 @@ export function RecentHypotheses({
         setHypotheses((prev) => prev.filter((h) => h.id !== id));
         onDelete?.(id);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to delete hypothesis");
+        setError(
+          err instanceof Error ? err.message : "Failed to delete hypothesis",
+        );
       } finally {
         setDeletingId(null);
       }
     },
-    [onDelete]
+    [onDelete],
   );
 
   if (loading) {
@@ -103,7 +107,9 @@ export function RecentHypotheses({
   if (hypotheses.length === 0) {
     return (
       <div className={className}>
-        <p className="text-xs text-surface-400 text-center py-4">No saved hypotheses</p>
+        <p className="text-xs text-surface-400 text-center py-4">
+          No saved hypotheses
+        </p>
       </div>
     );
   }
@@ -112,17 +118,25 @@ export function RecentHypotheses({
     <div className={className}>
       <div className="space-y-1">
         {hypotheses.map((hypothesis) => (
-          <div key={hypothesis.id} className="group flex items-start justify-between gap-2">
+          <div
+            key={hypothesis.id}
+            className="group flex items-start justify-between gap-2"
+          >
             <button
               type="button"
               onClick={() => onSelect(hypothesis)}
               className="flex-1 min-w-0 text-left px-3 py-2 hover:bg-surface-50 transition-colors rounded"
             >
-              <p className="text-sm text-surface-700 truncate mb-1">{hypothesis.title}</p>
+              <p className="text-sm text-surface-700 truncate mb-1">
+                {hypothesis.title}
+              </p>
               <div className="flex items-center gap-2">
                 {hypothesis.experiment_type && (
                   <span className="inline-flex items-center px-1.5 py-0.5 text-xs font-mono uppercase tracking-wider bg-surface-100 text-surface-600 border border-surface-200">
-                    {getExperimentTypeLabel(hypothesis.experiment_type, "short")}
+                    {getExperimentTypeLabel(
+                      hypothesis.experiment_type,
+                      "short",
+                    )}
                   </span>
                 )}
                 <span className="text-xs text-surface-500">
@@ -141,7 +155,12 @@ export function RecentHypotheses({
                 {deletingId === hypothesis.id ? (
                   <div className="w-4 h-4 animate-spin rounded-full border-b-2 border-surface-400"></div>
                 ) : (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"

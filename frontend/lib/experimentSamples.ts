@@ -41,7 +41,8 @@ export const experimentTypeEntries = [
   },
 ] as const;
 
-export type ExperimentTypeValue = (typeof experimentTypeEntries)[number]["value"];
+export type ExperimentTypeValue =
+  (typeof experimentTypeEntries)[number]["value"];
 
 export const experimentTypes: { value: ExperimentTypeValue; label: string }[] =
   experimentTypeEntries.map(({ value, label }) => ({ value, label }));
@@ -52,10 +53,12 @@ export const experimentTypeMap: Record<ExperimentTypeValue, string> =
       acc[entry.value] = entry.backendType;
       return acc;
     },
-    {} as Record<ExperimentTypeValue, string>
+    {} as Record<ExperimentTypeValue, string>,
   );
 
-export const isExperimentTypeValue = (value: string): value is ExperimentTypeValue =>
+export const isExperimentTypeValue = (
+  value: string,
+): value is ExperimentTypeValue =>
   Object.prototype.hasOwnProperty.call(experimentTypeMap, value);
 
 export type ExperimentForm = {
@@ -141,7 +144,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "cell_viability",
-    title: "Novel kinase inhibitor compound screening in A549 lung cancer cells",
+    title:
+      "Novel kinase inhibitor compound screening in A549 lung cancer cells",
     hypothesis_statement:
       "Compound LIT-2847 shows selective cytotoxicity with IC50 < 5 uM while sparing normal lung fibroblasts (IC50 > 50 uM)",
     hypothesis_null:
@@ -154,7 +158,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "cell_viability",
-    title: "Combination therapy synergy assessment - Cisplatin with PARP inhibitor",
+    title:
+      "Combination therapy synergy assessment - Cisplatin with PARP inhibitor",
     hypothesis_statement:
       "The combination of cisplatin and olaparib shows synergistic cytotoxicity (CI < 0.8) in BRCA1-mutant ovarian cancer cells",
     hypothesis_null:

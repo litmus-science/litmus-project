@@ -4,7 +4,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { listHypotheses, ApiError } from "@/lib/api";
 import type { HypothesisListItem } from "@/lib/types";
-import { EXPERIMENT_TYPE_LABELS, getExperimentTypeLabel } from "@/lib/experimentTypeLabels";
+import {
+  EXPERIMENT_TYPE_LABELS,
+  getExperimentTypeLabel,
+} from "@/lib/experimentTypeLabels";
 
 interface HypothesisPickerProps {
   isOpen: boolean;
@@ -26,9 +29,14 @@ const experimentTypeColors: Record<string, string> = {
 const truncate = (text: string, maxLength: number): string =>
   text.length > maxLength ? `${text.substring(0, maxLength)}...` : text;
 
-const formatDate = (date: string): string => new Date(date).toLocaleDateString();
+const formatDate = (date: string): string =>
+  new Date(date).toLocaleDateString();
 
-export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPickerProps) {
+export function HypothesisPicker({
+  isOpen,
+  onClose,
+  onSelect,
+}: HypothesisPickerProps) {
   const [hypotheses, setHypotheses] = useState<HypothesisListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -37,49 +45,63 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const requestController = useRef<AbortController | null>(null);
 
-  const fetchHypotheses = useCallback(async ({ reset = false, cursor: nextCursor }: { reset?: boolean; cursor?: string } = {}) => {
-    requestController.current?.abort();
-    const controller = new AbortController();
-    requestController.current = controller;
+  const fetchHypotheses = useCallback(
+    async ({
+      reset = false,
+      cursor: nextCursor,
+    }: { reset?: boolean; cursor?: string } = {}) => {
+      requestController.current?.abort();
+      const controller = new AbortController();
+      requestController.current = controller;
 
-    setLoading(true);
-    setError("");
+      setLoading(true);
+      setError("");
 
-    try {
-      const params: { experiment_type?: string; limit: number; cursor?: string } = { limit: 10 };
-      if (filterType !== "all") {
-        params.experiment_type = filterType;
-      }
-      if (!reset && nextCursor) {
-        params.cursor = nextCursor;
-      }
+      try {
+        const params: {
+          experiment_type?: string;
+          limit: number;
+          cursor?: string;
+        } = { limit: 10 };
+        if (filterType !== "all") {
+          params.experiment_type = filterType;
+        }
+        if (!reset && nextCursor) {
+          params.cursor = nextCursor;
+        }
 
-      const response = await listHypotheses(params, { signal: controller.signal });
+        const response = await listHypotheses(params, {
+          signal: controller.signal,
+        });
 
-      if (reset) {
-        setHypotheses(response.hypotheses);
-      } else {
-        setHypotheses((prev) => [...prev, ...response.hypotheses]);
-      }
+        if (reset) {
+          setHypotheses(response.hypotheses);
+        } else {
+          setHypotheses((prev) => [...prev, ...response.hypotheses]);
+        }
 
-      setHasMore(response.pagination.has_more);
-      setCursor(response.pagination.cursor);
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") {
-        return;
+        setHasMore(response.pagination.has_more);
+        setCursor(response.pagination.cursor);
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          return;
+        }
+        if (err instanceof ApiError) {
+          setError(err.message);
+        } else {
+          setError(
+            err instanceof Error ? err.message : "Failed to load hypotheses",
+          );
+        }
+      } finally {
+        if (requestController.current === controller) {
+          requestController.current = null;
+          setLoading(false);
+        }
       }
-      if (err instanceof ApiError) {
-        setError(err.message);
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to load hypotheses");
-      }
-    } finally {
-      if (requestController.current === controller) {
-        requestController.current = null;
-        setLoading(false);
-      }
-    }
-  }, [filterType]);
+    },
+    [filterType],
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -99,7 +121,7 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
       onSelect(hypothesis);
       onClose();
     },
-    [onSelect, onClose]
+    [onSelect, onClose],
   );
 
   const handleLoadMore = useCallback(() => {
@@ -114,7 +136,7 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
         onClose();
       }
     },
-    [onClose]
+    [onClose],
   );
 
   if (!isOpen) return null;
@@ -127,15 +149,27 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-surface-200 px-6 py-4">
-          <h2 className="text-xl font-display text-surface-900">Select Hypothesis</h2>
+          <h2 className="text-xl font-display text-surface-900">
+            Select Hypothesis
+          </h2>
           <button
             type="button"
             onClick={onClose}
             className="text-surface-400 hover:text-surface-600 transition-colors"
             aria-label="Close"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -165,11 +199,7 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          {error && (
-            <div className="alert-error mb-4">
-              {error}
-            </div>
-          )}
+          {error && <div className="alert-error mb-4">{error}</div>}
 
           {loading && hypotheses.length === 0 ? (
             <div className="flex items-center justify-center py-12">
@@ -178,8 +208,18 @@ export function HypothesisPicker({ isOpen, onClose, onSelect }: HypothesisPicker
           ) : hypotheses.length === 0 ? (
             <div className="text-center py-12">
               <div className="w-16 h-16 border-2 border-surface-200 flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-surface-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                <svg
+                  className="w-8 h-8 text-surface-300"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                  />
                 </svg>
               </div>
               <p className="text-surface-500 mb-4">No saved hypotheses</p>

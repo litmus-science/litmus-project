@@ -1,7 +1,12 @@
 "use client";
 
 import { useMemo } from "react";
-import type { EdisonReasoningTrace, EdisonPaperResult, EdisonEvidence, EdisonPlanStep } from "@/lib/types";
+import type {
+  EdisonReasoningTrace,
+  EdisonPaperResult,
+  EdisonEvidence,
+  EdisonPlanStep,
+} from "@/lib/types";
 
 interface PlanTableProps {
   plan: EdisonPlanStep[];
@@ -12,38 +17,68 @@ function PlanTable({ plan }: PlanTableProps) {
 
   return (
     <div className="mb-6">
-      <h3 className="text-sm font-medium text-surface-700 mb-3">Execution Plan</h3>
+      <h3 className="text-sm font-medium text-surface-700 mb-3">
+        Execution Plan
+      </h3>
       <div className="overflow-x-auto border border-surface-200 rounded-lg">
-        <table className="min-w-full divide-y divide-surface-200" aria-label="Edison execution plan steps">
+        <table
+          className="min-w-full divide-y divide-surface-200"
+          aria-label="Edison execution plan steps"
+        >
           <thead className="bg-surface-50">
             <tr>
-              <th className="px-3 py-2 text-left text-xs font-medium text-surface-500 uppercase tracking-wider">ID</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-surface-500 uppercase tracking-wider">Objective</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-surface-500 uppercase tracking-wider">Rationale</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-surface-500 uppercase tracking-wider">Status</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-surface-500 uppercase tracking-wider">Result</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-surface-500 uppercase tracking-wider">
+                ID
+              </th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-surface-500 uppercase tracking-wider">
+                Objective
+              </th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-surface-500 uppercase tracking-wider">
+                Rationale
+              </th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-surface-500 uppercase tracking-wider">
+                Status
+              </th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-surface-500 uppercase tracking-wider">
+                Result
+              </th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-surface-100">
             {plan.map((step) => (
               <tr key={step.id} className="hover:bg-surface-50">
-                <td className="px-3 py-2 text-xs font-mono text-surface-500">{step.id}</td>
-                <td className="px-3 py-2 text-sm text-surface-800">{step.objective}</td>
-                <td className="px-3 py-2 text-sm text-surface-600 max-w-xs truncate" title={step.rationale}>{step.rationale}</td>
+                <td className="px-3 py-2 text-xs font-mono text-surface-500">
+                  {step.id}
+                </td>
+                <td className="px-3 py-2 text-sm text-surface-800">
+                  {step.objective}
+                </td>
+                <td
+                  className="px-3 py-2 text-sm text-surface-600 max-w-xs truncate"
+                  title={step.rationale}
+                >
+                  {step.rationale}
+                </td>
                 <td className="px-3 py-2">
-                  <span className={`
+                  <span
+                    className={`
                     inline-flex items-center px-2 py-0.5 text-xs font-mono rounded
-                    ${step.status === "completed"
-                      ? "bg-emerald-100 text-emerald-700"
-                      : step.status === "in_progress"
-                      ? "bg-blue-100 text-blue-700"
-                      : "bg-surface-100 text-surface-500"
+                    ${
+                      step.status === "completed"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : step.status === "in_progress"
+                          ? "bg-blue-100 text-blue-700"
+                          : "bg-surface-100 text-surface-500"
                     }
-                  `}>
+                  `}
+                  >
                     {step.status}
                   </span>
                 </td>
-                <td className="px-3 py-2 text-sm text-surface-600 max-w-xs truncate" title={step.result || ""}>
+                <td
+                  className="px-3 py-2 text-sm text-surface-600 max-w-xs truncate"
+                  title={step.result || ""}
+                >
                   {step.result || "-"}
                 </td>
               </tr>
@@ -65,7 +100,12 @@ function PaperCard({ paper }: PaperCardProps) {
       <div className="flex items-start justify-between gap-2">
         <h4 className="text-sm font-medium text-surface-800 line-clamp-2 flex-1">
           {paper.url ? (
-            <a href={paper.url} target="_blank" rel="noopener noreferrer" className="hover:text-accent-600 hover:underline">
+            <a
+              href={paper.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-accent-600 hover:underline"
+            >
               {paper.title}
             </a>
           ) : (
@@ -132,7 +172,9 @@ function EvidenceItem({ evidence }: EvidenceItemProps) {
     <div className="border-l-2 border-accent-300 pl-4 py-2">
       <p className="text-sm text-surface-700">{evidence.context}</p>
       {evidence.summary && (
-        <p className="text-xs text-surface-500 mt-1 italic">{evidence.summary}</p>
+        <p className="text-xs text-surface-500 mt-1 italic">
+          {evidence.summary}
+        </p>
       )}
       {evidence.relevance != null && (
         <div className="flex items-center gap-2 mt-2">
@@ -143,7 +185,9 @@ function EvidenceItem({ evidence }: EvidenceItemProps) {
               style={{ width: `${Math.min(100, evidence.relevance * 10)}%` }}
             />
           </div>
-          <span className="text-xs text-surface-500">{evidence.relevance}/10</span>
+          <span className="text-xs text-surface-500">
+            {evidence.relevance}/10
+          </span>
         </div>
       )}
     </div>
@@ -178,7 +222,12 @@ export interface ReasoningTraceProps {
   onRetry?: () => void;
 }
 
-export function ReasoningTrace({ trace, isLoading = false, error, onRetry }: ReasoningTraceProps) {
+export function ReasoningTrace({
+  trace,
+  isLoading = false,
+  error,
+  onRetry,
+}: ReasoningTraceProps) {
   const hasContent = useMemo(() => {
     if (!trace) return false;
     return (
@@ -195,10 +244,16 @@ export function ReasoningTrace({ trace, isLoading = false, error, onRetry }: Rea
   return (
     <div className="bg-white rounded-xl border border-surface-200 p-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-surface-800">Edison Analysis</h2>
+        <h2 className="text-lg font-semibold text-surface-800">
+          Edison Analysis
+        </h2>
         {isLoading && (
           <div className="flex items-center gap-2 text-sm text-accent-600">
-            <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+            <svg
+              className="animate-spin h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
               <circle
                 className="opacity-25"
                 cx="12"
@@ -233,7 +288,9 @@ export function ReasoningTrace({ trace, isLoading = false, error, onRetry }: Rea
               />
             </svg>
             <div className="flex-1 min-w-0">
-              <h3 className="text-sm font-medium text-red-800 mb-1">Analysis Failed</h3>
+              <h3 className="text-sm font-medium text-red-800 mb-1">
+                Analysis Failed
+              </h3>
               <p className="text-sm text-red-700">{error}</p>
             </div>
             {onRetry && (
@@ -280,8 +337,12 @@ export function ReasoningTrace({ trace, isLoading = false, error, onRetry }: Rea
                 d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
               />
             </svg>
-            <p className="text-sm text-surface-500">Initializing Edison analysis...</p>
-            <p className="text-xs text-surface-400 mt-1">This may take 3-10 minutes</p>
+            <p className="text-sm text-surface-500">
+              Initializing Edison analysis...
+            </p>
+            <p className="text-xs text-surface-400 mt-1">
+              This may take 3-10 minutes
+            </p>
           </div>
         </div>
       )}

@@ -69,7 +69,8 @@ export function SaveHypothesisButton({
       }, 2000);
     } catch (err) {
       setSaveState("error");
-      const error = err instanceof Error ? err : new Error("Failed to save hypothesis");
+      const error =
+        err instanceof Error ? err : new Error("Failed to save hypothesis");
 
       if (onError) {
         onError(error);
@@ -92,10 +93,10 @@ export function SaveHypothesisButton({
         !isValid
           ? `Hypothesis must be at least ${MIN_HYPOTHESIS_LENGTH} characters`
           : saveState === "saving"
-          ? "Saving hypothesis..."
-          : saveState === "success"
-          ? "Hypothesis saved successfully"
-          : "Save hypothesis as draft"
+            ? "Saving hypothesis..."
+            : saveState === "success"
+              ? "Hypothesis saved successfully"
+              : "Save hypothesis as draft"
       }
     >
       {saveState === "saving" ? (

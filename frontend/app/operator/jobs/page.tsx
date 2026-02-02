@@ -43,7 +43,9 @@ export default function OperatorJobsPage() {
         const params: { category?: string; bsl_level?: string } = {};
         if (categoryFilter) params.category = categoryFilter;
         if (bslFilter) params.bsl_level = bslFilter;
-        const data = await listJobs(Object.keys(params).length ? params : undefined);
+        const data = await listJobs(
+          Object.keys(params).length ? params : undefined,
+        );
         setJobs(data.jobs);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load jobs");
@@ -101,7 +103,9 @@ export default function OperatorJobsPage() {
 
       {jobs.length === 0 ? (
         <div className="text-center py-12">
-          <p className="text-gray-500">No jobs available matching your criteria</p>
+          <p className="text-gray-500">
+            No jobs available matching your criteria
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

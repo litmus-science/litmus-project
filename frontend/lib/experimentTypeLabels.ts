@@ -11,7 +11,10 @@ export const EXPERIMENT_TYPE_LABELS = {
 
 export type ExperimentTypeLabelKey = keyof typeof EXPERIMENT_TYPE_LABELS;
 
-export const EXPERIMENT_TYPE_SHORT_LABELS: Record<ExperimentTypeLabelKey, string> = {
+export const EXPERIMENT_TYPE_SHORT_LABELS: Record<
+  ExperimentTypeLabelKey,
+  string
+> = {
   SANGER_PLASMID_VERIFICATION: "Sanger",
   QPCR_EXPRESSION: "qPCR",
   CELL_VIABILITY_IC50: "Cell Viability",
@@ -26,9 +29,10 @@ export type ExperimentTypeLabelVariant = "full" | "short";
 
 export const getExperimentTypeLabel = (
   experimentType: string,
-  variant: ExperimentTypeLabelVariant = "full"
+  variant: ExperimentTypeLabelVariant = "full",
 ): string => {
-  const labels = variant === "short" ? EXPERIMENT_TYPE_SHORT_LABELS : EXPERIMENT_TYPE_LABELS;
+  const labels =
+    variant === "short" ? EXPERIMENT_TYPE_SHORT_LABELS : EXPERIMENT_TYPE_LABELS;
   return Object.prototype.hasOwnProperty.call(labels, experimentType)
     ? labels[experimentType as ExperimentTypeLabelKey]
     : experimentType;

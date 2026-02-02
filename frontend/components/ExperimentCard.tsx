@@ -6,7 +6,10 @@ import { formatUsd } from "@/lib/format";
 import { StatusBadge } from "./StatusBadge";
 
 export function ExperimentCard({ experiment }: { experiment: Experiment }) {
-  const spec = experiment.specification as { title?: string; experiment_type?: string };
+  const spec = experiment.specification as {
+    title?: string;
+    experiment_type?: string;
+  };
   const title = spec.title || spec.experiment_type || "Untitled";
 
   return (
@@ -22,9 +25,7 @@ export function ExperimentCard({ experiment }: { experiment: Experiment }) {
           {spec.experiment_type}
         </p>
         <div className="flex justify-between text-xs text-surface-400 pt-4 border-t border-surface-200">
-          <span>
-            {new Date(experiment.created_at).toLocaleDateString()}
-          </span>
+          <span>{new Date(experiment.created_at).toLocaleDateString()}</span>
           {experiment.cost.estimated_usd && (
             <span className="font-mono text-accent font-medium">
               {formatUsd(experiment.cost.estimated_usd)}

@@ -49,12 +49,15 @@ function NewExperimentPageContent() {
 
   // Hypothesis picker state
   const [showPicker, setShowPicker] = useState(false);
-  const [selectedHypothesis, setSelectedHypothesis] = useState<HypothesisResponse | null>(null);
+  const [selectedHypothesis, setSelectedHypothesis] =
+    useState<HypothesisResponse | null>(null);
 
   // AI-assisted translation state
   const [useAI, setUseAI] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
-  const [translation, setTranslation] = useState<TranslateResponse | null>(null);
+  const [translation, setTranslation] = useState<TranslateResponse | null>(
+    null,
+  );
   const [showPreview, setShowPreview] = useState(false);
 
   const {
@@ -83,22 +86,25 @@ function NewExperimentPageContent() {
   }, []);
 
   // Pre-fill form from hypothesis (defined before useEffects that use it)
-  const prefillFromHypothesis = useCallback((hypothesis: HypothesisResponse) => {
-    const formType = hypothesis.experiment_type
-      ? backendToFormTypeMap[hypothesis.experiment_type]
-      : undefined;
+  const prefillFromHypothesis = useCallback(
+    (hypothesis: HypothesisResponse) => {
+      const formType = hypothesis.experiment_type
+        ? backendToFormTypeMap[hypothesis.experiment_type]
+        : undefined;
 
-    reset({
-      experiment_type: (formType || "") as ExperimentForm["experiment_type"],
-      title: hypothesis.title,
-      hypothesis_statement: hypothesis.statement,
-      hypothesis_null: hypothesis.null_hypothesis || "",
-      bsl_level: "BSL1",
-      privacy: "open",
-      budget_max_usd: 500,
-      notes: "",
-    });
-  }, [reset]);
+      reset({
+        experiment_type: (formType || "") as ExperimentForm["experiment_type"],
+        title: hypothesis.title,
+        hypothesis_statement: hypothesis.statement,
+        hypothesis_null: hypothesis.null_hypothesis || "",
+        bsl_level: "BSL1",
+        privacy: "open",
+        budget_max_usd: 500,
+        notes: "",
+      });
+    },
+    [reset],
+  );
 
   // Handle URL param ?hypothesisId={id}
   useEffect(() => {
@@ -142,7 +148,10 @@ function NewExperimentPageContent() {
   useEffect(() => {
     if (!experimentType) return;
     const controller = new AbortController();
-    estimateCost({ experiment_type: experimentType }, { signal: controller.signal })
+    estimateCost(
+      { experiment_type: experimentType },
+      { signal: controller.signal },
+    )
       .then((data) => setEstimate(data.estimated_cost_usd))
       .catch((err) => {
         if (err instanceof Error && err.name === "AbortError") {
@@ -170,7 +179,9 @@ function NewExperimentPageContent() {
       hypothesisRequestRef.current?.abort();
       hypothesisRequestRef.current = controller;
 
-      const hypothesis = await getHypothesis(item.id, { signal: controller.signal });
+      const hypothesis = await getHypothesis(item.id, {
+        signal: controller.signal,
+      });
       prefillFromHypothesis(hypothesis);
       setSelectedHypothesis(hypothesis);
       setShowPicker(false);
@@ -228,18 +239,25 @@ function NewExperimentPageContent() {
       // Reset form with selected values
       reset(selected);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load sample experiments");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to load sample experiments",
+      );
       console.error(err);
     } finally {
       setGeneratingExample(false);
     }
   };
 
-
   // Generate AI-assisted protocol preview
   const generatePreview = async () => {
     const formData = watch();
-    if (!formData.experiment_type || !formData.title || !formData.hypothesis_statement) {
+    if (
+      !formData.experiment_type ||
+      !formData.title ||
+      !formData.hypothesis_statement
+    ) {
       setError("Please fill in experiment type, title, and hypothesis first");
       return;
     }
@@ -250,7 +268,9 @@ function NewExperimentPageContent() {
     setTranslation(null);
 
     try {
-      const backendExperimentType = isExperimentTypeValue(formData.experiment_type)
+      const backendExperimentType = isExperimentTypeValue(
+        formData.experiment_type,
+      )
         ? experimentTypeMap[formData.experiment_type]
         : "CUSTOM";
 
@@ -276,11 +296,16 @@ function NewExperimentPageContent() {
         },
       };
 
-      const translateResult = await translateToCloudLab({ intake, use_llm: true });
+      const translateResult = await translateToCloudLab({
+        intake,
+        use_llm: true,
+      });
       setTranslation(translateResult);
       setShowPreview(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate preview");
+      setError(
+        err instanceof Error ? err.message : "Failed to generate preview",
+      );
     } finally {
       setAiLoading(false);
     }
@@ -316,7 +341,9 @@ function NewExperimentPageContent() {
       const result = await createExperiment(payload);
       router.push(`/experiments/${result.experiment_id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create experiment");
+      setError(
+        err instanceof Error ? err.message : "Failed to create experiment",
+      );
     } finally {
       setLoading(false);
     }
@@ -327,7 +354,9 @@ function NewExperimentPageContent() {
       <div className="mb-10 flex items-end justify-between">
         <div>
           <span className="section-label">02 — Create</span>
-          <h1 className="text-4xl font-display text-surface-900">New Experiment</h1>
+          <h1 className="text-4xl font-display text-surface-900">
+            New Experiment
+          </h1>
         </div>
         <button
           type="button"
@@ -337,16 +366,43 @@ function NewExperimentPageContent() {
         >
           {generatingExample ? (
             <>
-              <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              <svg
+                className="animate-spin h-4 w-4"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                ></circle>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
               </svg>
               Loading...
             </>
           ) : (
             <>
-              <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+              <svg
+                className="h-4 w-4"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"
+                />
               </svg>
               Generate Example
             </>
@@ -356,11 +412,7 @@ function NewExperimentPageContent() {
 
       <div className="card p-8">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          {error && (
-            <div className="alert-error">
-              {error}
-            </div>
-          )}
+          {error && <div className="alert-error">{error}</div>}
 
           {/* Hypothesis Pre-fill Section */}
           {selectedHypothesis ? (
@@ -391,7 +443,8 @@ function NewExperimentPageContent() {
                     Start from a saved hypothesis
                   </p>
                   <p className="text-xs text-surface-500">
-                    Pre-fill this form with data from a previously saved hypothesis
+                    Pre-fill this form with data from a previously saved
+                    hypothesis
                   </p>
                 </div>
                 <button
@@ -410,7 +463,9 @@ function NewExperimentPageContent() {
               Experiment Type <span className="text-accent">*</span>
             </label>
             <select
-              {...register("experiment_type", { required: "Please select an experiment type" })}
+              {...register("experiment_type", {
+                required: "Please select an experiment type",
+              })}
               className="input"
             >
               <option value="">Select type...</option>
@@ -459,13 +514,17 @@ function NewExperimentPageContent() {
               Hypothesis Statement <span className="text-accent">*</span>
             </label>
             <textarea
-              {...register("hypothesis_statement", { required: "Hypothesis is required" })}
+              {...register("hypothesis_statement", {
+                required: "Hypothesis is required",
+              })}
               rows={3}
               placeholder="e.g., Compound X inhibits enzyme Y activity by at least 50% at 10μM"
               className="input"
             />
             {errors.hypothesis_statement && (
-              <p className="form-error">{errors.hypothesis_statement.message}</p>
+              <p className="form-error">
+                {errors.hypothesis_statement.message}
+              </p>
             )}
           </div>
 
@@ -474,7 +533,9 @@ function NewExperimentPageContent() {
               Null Hypothesis <span className="text-accent">*</span>
             </label>
             <textarea
-              {...register("hypothesis_null", { required: "Null hypothesis is required" })}
+              {...register("hypothesis_null", {
+                required: "Null hypothesis is required",
+              })}
               rows={2}
               placeholder="e.g., Compound X has no significant effect on enzyme Y at 10μM"
               className="input"
@@ -486,9 +547,7 @@ function NewExperimentPageContent() {
 
           <div className="grid grid-cols-2 gap-6">
             <div>
-              <label className="form-label">
-                Maximum Budget (USD)
-              </label>
+              <label className="form-label">Maximum Budget (USD)</label>
               <input
                 {...register("budget_max_usd", { valueAsNumber: true })}
                 type="number"
@@ -499,13 +558,8 @@ function NewExperimentPageContent() {
             </div>
 
             <div>
-              <label className="form-label">
-                BSL Level
-              </label>
-              <select
-                {...register("bsl_level")}
-                className="input"
-              >
+              <label className="form-label">BSL Level</label>
+              <select {...register("bsl_level")} className="input">
                 <option value="BSL1">BSL-1</option>
                 <option value="BSL2">BSL-2</option>
               </select>
@@ -513,22 +567,15 @@ function NewExperimentPageContent() {
           </div>
 
           <div>
-            <label className="form-label">
-              Privacy
-            </label>
-            <select
-              {...register("privacy")}
-              className="input"
-            >
+            <label className="form-label">Privacy</label>
+            <select {...register("privacy")} className="input">
               <option value="open">Open (results may be shared)</option>
               <option value="confidential">Confidential (NDA required)</option>
             </select>
           </div>
 
           <div>
-            <label className="form-label">
-              Additional Notes
-            </label>
+            <label className="form-label">Additional Notes</label>
             <textarea
               {...register("notes")}
               rows={3}
@@ -555,7 +602,8 @@ function NewExperimentPageContent() {
                     AI-Assisted Protocol Generation
                   </span>
                   <p className="text-xs text-surface-500">
-                    Use AI to extract parameters from your hypothesis and generate cloud lab protocols
+                    Use AI to extract parameters from your hypothesis and
+                    generate cloud lab protocols
                   </p>
                 </div>
               </div>
@@ -576,50 +624,66 @@ function NewExperimentPageContent() {
               <div className="space-y-4 bg-surface-50 p-6">
                 {/* Protocol Preview */}
                 <div className="space-y-3">
-                  <p className="text-xs font-mono uppercase tracking-wide text-surface-600">Generated Protocols:</p>
-                  {Object.entries(translation.translations).map(([provider, result]) => (
-                    <div key={provider} className="border border-surface-200 overflow-hidden">
-                      <div className="bg-surface-100 px-4 py-2 flex items-center justify-between">
-                        <span className="text-xs font-mono uppercase tracking-wide text-surface-700">
-                          {provider} ({result.format})
-                        </span>
-                        {result.success ? (
-                          <span className="text-xs text-emerald-600 font-mono">Valid</span>
-                        ) : (
-                          <span className="text-xs text-red-600 font-mono">Errors</span>
-                        )}
-                      </div>
-
-                      {(result.warnings.length > 0 || result.errors.length > 0) && (
-                        <div className="px-4 py-3 bg-white border-b border-surface-200 space-y-2 text-xs">
-                          {result.warnings.length > 0 && (
-                            <div>
-                              <p className="font-mono uppercase tracking-wide text-amber-700 mb-1">Warnings:</p>
-                              <ul className="text-amber-700 space-y-1">
-                                {result.warnings.map((w, i) => (
-                                  <li key={i}>• {w.message}</li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                          {result.errors.length > 0 && (
-                            <div>
-                              <p className="font-mono uppercase tracking-wide text-red-700 mb-1">Errors:</p>
-                              <ul className="text-red-700 space-y-1">
-                                {result.errors.map((e, i) => (
-                                  <li key={i}>• {e.message}</li>
-                                ))}
-                              </ul>
-                            </div>
+                  <p className="text-xs font-mono uppercase tracking-wide text-surface-600">
+                    Generated Protocols:
+                  </p>
+                  {Object.entries(translation.translations).map(
+                    ([provider, result]) => (
+                      <div
+                        key={provider}
+                        className="border border-surface-200 overflow-hidden"
+                      >
+                        <div className="bg-surface-100 px-4 py-2 flex items-center justify-between">
+                          <span className="text-xs font-mono uppercase tracking-wide text-surface-700">
+                            {provider} ({result.format})
+                          </span>
+                          {result.success ? (
+                            <span className="text-xs text-emerald-600 font-mono">
+                              Valid
+                            </span>
+                          ) : (
+                            <span className="text-xs text-red-600 font-mono">
+                              Errors
+                            </span>
                           )}
                         </div>
-                      )}
 
-                      <pre className="p-4 text-xs font-mono text-surface-600 overflow-x-auto max-h-48 bg-white">
-                        {result.protocol_readable}
-                      </pre>
-                    </div>
-                  ))}
+                        {(result.warnings.length > 0 ||
+                          result.errors.length > 0) && (
+                          <div className="px-4 py-3 bg-white border-b border-surface-200 space-y-2 text-xs">
+                            {result.warnings.length > 0 && (
+                              <div>
+                                <p className="font-mono uppercase tracking-wide text-amber-700 mb-1">
+                                  Warnings:
+                                </p>
+                                <ul className="text-amber-700 space-y-1">
+                                  {result.warnings.map((w, i) => (
+                                    <li key={i}>• {w.message}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {result.errors.length > 0 && (
+                              <div>
+                                <p className="font-mono uppercase tracking-wide text-red-700 mb-1">
+                                  Errors:
+                                </p>
+                                <ul className="text-red-700 space-y-1">
+                                  {result.errors.map((e, i) => (
+                                    <li key={i}>• {e.message}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <pre className="p-4 text-xs font-mono text-surface-600 overflow-x-auto max-h-48 bg-white">
+                          {result.protocol_readable}
+                        </pre>
+                      </div>
+                    ),
+                  )}
                 </div>
               </div>
             )}
@@ -656,13 +720,15 @@ function NewExperimentPageContent() {
 
 export default function NewExperimentPage() {
   return (
-    <Suspense fallback={
-      <div className="max-w-3xl mx-auto px-6 lg:px-8 py-12">
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent"></div>
+    <Suspense
+      fallback={
+        <div className="max-w-3xl mx-auto px-6 lg:px-8 py-12">
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent"></div>
+          </div>
         </div>
-      </div>
-    }>
+      }
+    >
       <NewExperimentPageContent />
     </Suspense>
   );

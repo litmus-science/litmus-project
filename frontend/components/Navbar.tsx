@@ -19,8 +19,8 @@ export function Navbar() {
     };
 
     handleScroll();
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   const handleLogout = () => {
@@ -31,11 +31,13 @@ export function Navbar() {
   const isLoggedIn = mounted && isAuthenticated();
 
   return (
-    <nav className={`sticky top-0 z-50 transition-all duration-300 ${
-      scrolled
-        ? 'bg-surface-off-white/95 backdrop-blur-sm border-b border-surface-200'
-        : 'bg-surface-off-white border-b border-transparent'
-    }`}>
+    <nav
+      className={`sticky top-0 z-50 transition-all duration-300 ${
+        scrolled
+          ? "bg-surface-off-white/95 backdrop-blur-sm border-b border-surface-200"
+          : "bg-surface-off-white border-b border-transparent"
+      }`}
+    >
       <div className="max-w-7xl mx-auto px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex items-center">
@@ -103,10 +105,7 @@ export function Navbar() {
                 >
                   Login
                 </Link>
-                <Link
-                  href="/register"
-                  className="btn-primary text-xs"
-                >
+                <Link href="/register" className="btn-primary text-xs">
                   Sign Up
                 </Link>
               </div>

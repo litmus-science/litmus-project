@@ -141,18 +141,20 @@ export default function JobDetailPage() {
           <div className="bg-green-50 rounded-lg p-4">
             <p className="text-sm text-green-800">Budget</p>
             <p className="text-2xl font-bold text-green-600">
-              {experiment.cost.estimated_usd ? formatUsd(experiment.cost.estimated_usd) : "TBD"}
+              {experiment.cost.estimated_usd
+                ? formatUsd(experiment.cost.estimated_usd)
+                : "TBD"}
             </p>
           </div>
 
           {/* Hypothesis */}
           {spec.hypothesis && (
             <div>
-              <h2 className="text-sm font-medium text-gray-500 mb-2">Hypothesis</h2>
+              <h2 className="text-sm font-medium text-gray-500 mb-2">
+                Hypothesis
+              </h2>
               <div className="bg-gray-50 rounded p-3 text-sm">
-                <p className="font-medium">
-                  {spec.hypothesis.statement}
-                </p>
+                <p className="font-medium">{spec.hypothesis.statement}</p>
                 <p className="text-gray-500 mt-2">
                   Null: {spec.hypothesis.null_hypothesis}
                 </p>
@@ -163,7 +165,9 @@ export default function JobDetailPage() {
           {/* Compliance */}
           {spec.compliance && (
             <div>
-              <h2 className="text-sm font-medium text-gray-500 mb-2">Requirements</h2>
+              <h2 className="text-sm font-medium text-gray-500 mb-2">
+                Requirements
+              </h2>
               <div className="flex gap-2">
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
                   {spec.compliance.bsl_level}
@@ -174,7 +178,9 @@ export default function JobDetailPage() {
 
           {/* Full Specification */}
           <div>
-            <h2 className="text-sm font-medium text-gray-500 mb-2">Full Specification</h2>
+            <h2 className="text-sm font-medium text-gray-500 mb-2">
+              Full Specification
+            </h2>
             <pre className="bg-gray-50 rounded p-3 text-xs overflow-x-auto max-h-64">
               {JSON.stringify(spec, null, 2)}
             </pre>
