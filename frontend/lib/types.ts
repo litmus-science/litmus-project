@@ -159,6 +159,15 @@ export interface Job {
   posted_at: string;
 }
 
+export type RefundStatus = "processed" | "pending" | "none";
+
+export interface CancelResponse {
+  experiment_id: string;
+  status: "cancelled";
+  refund_amount_usd: number | null;
+  refund_status: RefundStatus;
+}
+
 export interface ClaimResponse {
   experiment_id: string;
   claimed_at: string;
@@ -172,7 +181,11 @@ export interface SubmitResultsResponse {
 }
 
 // Edison types
-export type EdisonJobType = "literature" | "molecules" | "analysis" | "precedent";
+export type EdisonJobType =
+  | "literature"
+  | "molecules"
+  | "analysis"
+  | "precedent";
 
 export interface EdisonPriorWork {
   type: "doi" | "pmid" | "url" | "litmus_experiment";

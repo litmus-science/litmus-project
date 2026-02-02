@@ -8,6 +8,7 @@ import type {
   Template,
   TemplateListItem,
   Job,
+  CancelResponse,
   ClaimResponse,
   SubmitResultsResponse,
   EdisonJobType,
@@ -69,7 +70,7 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
-    public rateLimit?: RateLimitInfo
+    public rateLimit?: RateLimitInfo,
   ) {
     super(message);
     this.name = "ApiError";
@@ -78,7 +79,7 @@ export class ApiError extends Error {
 
 async function request<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
 ): Promise<T> {
   const token = getToken();
   const isFormData = options.body instanceof FormData;
@@ -105,7 +106,9 @@ async function request<T>(
   };
 
   if (!response.ok) {
-    const error = (await response.json().catch(() => ({ message: "Request failed" }))) as unknown;
+    const error = (await response
+      .json()
+      .catch(() => ({ message: "Request failed" }))) as unknown;
     const isRecord = (value: unknown): value is Record<string, unknown> =>
       typeof value === "object" && value !== null;
     let message = "Request failed";
@@ -171,7 +174,9 @@ export async function listExperiments(params?: {
   if (params?.limit) searchParams.set("limit", params.limit.toString());
   if (params?.cursor) searchParams.set("cursor", params.cursor);
   const query = searchParams.toString();
-  return request<ExperimentListResponse>(`/experiments${query ? `?${query}` : ""}`);
+  return request<ExperimentListResponse>(
+    `/experiments${query ? `?${query}` : ""}`,
+  );
 }
 
 export async function getExperiment(id: string): Promise<Experiment> {
@@ -191,19 +196,31 @@ export async function createExperiment(data: Record<string, unknown>): Promise<{
   });
 }
 
-export async function cancelExperiment(id: string): Promise<{ status: string }> {
-  return request(`/experiments/${id}/cancel`, { method: "POST" });
+export async function cancelExperiment(
+  id: string,
+  reason: string,
+): Promise<CancelResponse> {
+  return request<CancelResponse>(
+    `/experiments/${id}?reason=${encodeURIComponent(reason)}`,
+    { method: "DELETE" },
+  );
 }
 
 // Results
-export async function getResults(experimentId: string): Promise<ExperimentResults> {
+export async function getResults(
+  experimentId: string,
+): Promise<ExperimentResults> {
   return request<ExperimentResults>(`/experiments/${experimentId}/results`);
 }
 
 export async function approveResults(
   experimentId: string,
-  data: { rating?: number; feedback?: string }
-): Promise<{ experiment_id: string; status: string; payment_released: boolean }> {
+  data: { rating?: number; feedback?: string },
+): Promise<{
+  experiment_id: string;
+  status: string;
+  payment_released: boolean;
+}> {
   return request(`/experiments/${experimentId}/approve`, {
     method: "POST",
     body: JSON.stringify(data),
@@ -212,7 +229,7 @@ export async function approveResults(
 
 export async function disputeResults(
   experimentId: string,
-  data: { reason: string; description: string; evidence_urls?: string[] }
+  data: { reason: string; description: string; evidence_urls?: string[] },
 ): Promise<{ dispute_id: string; experiment_id: string; status: string }> {
   return request(`/experiments/${experimentId}/dispute`, {
     method: "POST",
@@ -255,7 +272,7 @@ export async function claimJob(
     authorization_confirmation: boolean;
     estimated_start_date: string;
     notes?: string;
-  }
+  },
 ): Promise<ClaimResponse> {
   return request(`/operator/jobs/${experimentId}/claim`, {
     method: "POST",
@@ -286,7 +303,7 @@ export async function submitResults(
       lab_notebook_base64?: string;
     };
     notes?: string;
-  }
+  },
 ): Promise<SubmitResultsResponse> {
   return request(`/operator/jobs/${experimentId}/submit`, {
     method: "POST",
@@ -297,7 +314,7 @@ export async function submitResults(
 // Cost estimate
 export async function estimateCost(
   data: Record<string, unknown>,
-  options?: RequestOptions
+  options?: RequestOptions,
 ): Promise<{
   estimated_cost_usd: { low: number; typical: number; high: number };
   estimated_turnaround_days: { standard: number; expedited?: number };
@@ -339,7 +356,7 @@ export interface LLMInterpretResponse {
 }
 
 export async function interpretExperiment(
-  data: LLMInterpretRequest
+  data: LLMInterpretRequest,
 ): Promise<LLMInterpretResponse> {
   return request<LLMInterpretResponse>("/cloud-labs/interpret", {
     method: "POST",
@@ -414,7 +431,9 @@ export async function startEdisonRun(data: {
   });
 }
 
-export async function getEdisonRunStatus(runId: string): Promise<EdisonRunStatusResponse> {
+export async function getEdisonRunStatus(
+  runId: string,
+): Promise<EdisonRunStatusResponse> {
   return request<EdisonRunStatusResponse>(`/cloud-labs/edison/status/${runId}`);
 }
 
@@ -430,12 +449,14 @@ export async function listEdisonRuns(params?: {
   if (params?.status) searchParams.set("status", params.status);
   if (params?.limit) searchParams.set("limit", params.limit.toString());
   const query = searchParams.toString();
-  return request<EdisonRunListResponse>(`/cloud-labs/edison/runs${query ? `?${query}` : ""}`);
+  return request<EdisonRunListResponse>(
+    `/cloud-labs/edison/runs${query ? `?${query}` : ""}`,
+  );
 }
 
 export async function updateEdisonRunDraft(
   runId: string,
-  data: EdisonRunDraftUpdate
+  data: EdisonRunDraftUpdate,
 ): Promise<EdisonRunDraft> {
   return request<EdisonRunDraft>(`/cloud-labs/edison/runs/${runId}/draft`, {
     method: "PATCH",
@@ -444,14 +465,17 @@ export async function updateEdisonRunDraft(
 }
 
 export async function clearEdisonHistory(): Promise<EdisonClearHistoryResponse> {
-  return request<EdisonClearHistoryResponse>("/cloud-labs/edison/runs/clear-history", {
-    method: "POST",
-  });
+  return request<EdisonClearHistoryResponse>(
+    "/cloud-labs/edison/runs/clear-history",
+    {
+      method: "POST",
+    },
+  );
 }
 
 // Hypotheses
 export async function createHypothesis(
-  data: HypothesisCreate
+  data: HypothesisCreate,
 ): Promise<HypothesisResponse> {
   return request<HypothesisResponse>("/hypotheses", {
     method: "POST",
@@ -459,26 +483,33 @@ export async function createHypothesis(
   });
 }
 
-export async function listHypotheses(params?: {
-  status?: string;
-  experiment_type?: string;
-  limit?: number;
-  cursor?: string;
-}, options?: RequestOptions): Promise<HypothesisListResponse> {
+export async function listHypotheses(
+  params?: {
+    status?: string;
+    experiment_type?: string;
+    limit?: number;
+    cursor?: string;
+  },
+  options?: RequestOptions,
+): Promise<HypothesisListResponse> {
   const searchParams = new URLSearchParams();
   if (params?.status) searchParams.set("status", params.status);
-  if (params?.experiment_type) searchParams.set("experiment_type", params.experiment_type);
+  if (params?.experiment_type)
+    searchParams.set("experiment_type", params.experiment_type);
   if (params?.limit) searchParams.set("limit", params.limit.toString());
   if (params?.cursor) searchParams.set("cursor", params.cursor);
   const query = searchParams.toString();
-  return request<HypothesisListResponse>(`/hypotheses${query ? `?${query}` : ""}`, {
-    signal: options?.signal,
-  });
+  return request<HypothesisListResponse>(
+    `/hypotheses${query ? `?${query}` : ""}`,
+    {
+      signal: options?.signal,
+    },
+  );
 }
 
 export async function getHypothesis(
   id: string,
-  options?: RequestOptions
+  options?: RequestOptions,
 ): Promise<HypothesisResponse> {
   return request<HypothesisResponse>(`/hypotheses/${id}`, {
     signal: options?.signal,
@@ -487,7 +518,7 @@ export async function getHypothesis(
 
 export async function updateHypothesis(
   id: string,
-  data: HypothesisUpdate
+  data: HypothesisUpdate,
 ): Promise<HypothesisResponse> {
   return request<HypothesisResponse>(`/hypotheses/${id}`, {
     method: "PATCH",
@@ -495,7 +526,9 @@ export async function updateHypothesis(
   });
 }
 
-export async function deleteHypothesis(id: string): Promise<{ deleted: boolean }> {
+export async function deleteHypothesis(
+  id: string,
+): Promise<{ deleted: boolean }> {
   return request<{ deleted: boolean }>(`/hypotheses/${id}`, {
     method: "DELETE",
   });
@@ -503,7 +536,7 @@ export async function deleteHypothesis(id: string): Promise<{ deleted: boolean }
 
 export async function hypothesisToExperiment(
   id: string,
-  data: HypothesisToExperimentRequest
+  data: HypothesisToExperimentRequest,
 ): Promise<ExperimentCreatedResponse> {
   return request<ExperimentCreatedResponse>(`/hypotheses/${id}/to-experiment`, {
     method: "POST",
