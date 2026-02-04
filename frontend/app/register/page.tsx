@@ -46,7 +46,7 @@ export default function RegisterPage() {
       const token = await login(data.email, data.password);
       localStorage.setItem(
         "litmus-auth",
-        JSON.stringify({ state: { token: token.access_token } })
+        JSON.stringify({ state: { token: token.access_token } }),
       );
       const user = await getMe();
       setAuth(token.access_token, user);
@@ -81,11 +81,7 @@ export default function RegisterPage() {
           </div>
 
           <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
-            {error && (
-              <div className="alert-error">
-                {error}
-              </div>
-            )}
+            {error && <div className="alert-error">{error}</div>}
 
             <div>
               <label htmlFor="email" className="form-label">
@@ -111,11 +107,7 @@ export default function RegisterPage() {
               <label htmlFor="name" className="form-label">
                 Full name
               </label>
-              <input
-                {...register("name")}
-                type="text"
-                className="input"
-              />
+              <input {...register("name")} type="text" className="input" />
             </div>
 
             <div>
@@ -163,9 +155,7 @@ export default function RegisterPage() {
                 className="input"
               />
               {errors.confirmPassword && (
-                <p className="form-error">
-                  {errors.confirmPassword.message}
-                </p>
+                <p className="form-error">{errors.confirmPassword.message}</p>
               )}
             </div>
 

@@ -5,17 +5,22 @@ Handles authentication and API interactions with ECL.
 Currently stubbed for future integration when API credentials are available.
 """
 
-from datetime import datetime
-from typing import Any
+from backend.types import JsonObject, JsonValue
 
 from ..base import (
     CloudLabProvider,
-    SubmissionResult,
-    StatusResult,
     ResultsData,
-    SubmissionStatus,
+    StatusResult,
     SubmissionError,
+    SubmissionResult,
+    SubmissionStatus,
 )
+
+
+def _as_str(value: JsonValue | None) -> str | None:
+    if isinstance(value, str):
+        return value
+    return None
 
 
 class ECLProvider(CloudLabProvider):
@@ -30,8 +35,12 @@ class ECLProvider(CloudLabProvider):
     Currently stubbed - requires API credentials for full functionality.
     """
 
-    def __init__(self, client_id: str | None = None, client_secret: str | None = None,
-                 organization_id: str | None = None):
+    def __init__(
+        self,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        organization_id: str | None = None,
+    ):
         self._client_id = client_id
         self._client_secret = client_secret
         self._organization_id = organization_id
@@ -49,7 +58,7 @@ class ECLProvider(CloudLabProvider):
     def required_credentials(self) -> list[str]:
         return ["client_id", "client_secret", "organization_id"]
 
-    async def authenticate(self, credentials: dict) -> bool:
+    async def authenticate(self, credentials: JsonObject) -> bool:
         """
         Authenticate with ECL API.
 
@@ -62,9 +71,9 @@ class ECLProvider(CloudLabProvider):
         Returns:
             True if authentication successful
         """
-        self._client_id = credentials.get("client_id")
-        self._client_secret = credentials.get("client_secret")
-        self._organization_id = credentials.get("organization_id")
+        self._client_id = _as_str(credentials.get("client_id"))
+        self._client_secret = _as_str(credentials.get("client_secret"))
+        self._organization_id = _as_str(credentials.get("organization_id"))
 
         if not all([self._client_id, self._client_secret, self._organization_id]):
             return False
@@ -90,7 +99,9 @@ class ECLProvider(CloudLabProvider):
         self._authenticated = True
         return self._authenticated
 
-    async def submit_experiment(self, protocol: Any, metadata: dict | None = None) -> SubmissionResult:
+    async def submit_experiment(
+        self, protocol: JsonValue, metadata: JsonObject | None = None
+    ) -> SubmissionResult:
         """
         Submit an SLL experiment to ECL.
 
@@ -103,8 +114,7 @@ class ECLProvider(CloudLabProvider):
         """
         if not self._authenticated:
             return SubmissionResult(
-                success=False,
-                message="Not authenticated. Call authenticate() first."
+                success=False, message="Not authenticated. Call authenticate() first."
             )
 
         # TODO: Implement actual API submission when credentials are available
@@ -128,13 +138,16 @@ class ECLProvider(CloudLabProvider):
         # Stub response for development
         return SubmissionResult(
             success=False,
-            message="ECL API integration not yet implemented. SLL code validated and ready for manual submission to ECL Command Center.",
+            message=(
+                "ECL API integration not yet implemented. SLL code validated and ready "
+                "for manual submission to ECL Command Center."
+            ),
             status=SubmissionStatus.PENDING,
             provider_response={
                 "sll_code": protocol,
                 "metadata": metadata,
-                "note": "Copy the SLL code to ECL Command Center for execution"
-            }
+                "note": "Copy the SLL code to ECL Command Center for execution",
+            },
         )
 
     async def get_status(self, submission_id: str) -> StatusResult:
@@ -157,7 +170,7 @@ class ECLProvider(CloudLabProvider):
         return StatusResult(
             submission_id=submission_id,
             status=SubmissionStatus.PENDING,
-            current_step="API integration pending"
+            current_step="API integration pending",
         )
 
     async def get_results(self, submission_id: str) -> ResultsData:
@@ -180,7 +193,7 @@ class ECLProvider(CloudLabProvider):
         return ResultsData(
             submission_id=submission_id,
             status=SubmissionStatus.PENDING,
-            metadata={"note": "Results retrieval not yet implemented"}
+            metadata={"note": "Results retrieval not yet implemented"},
         )
 
     async def cancel_experiment(self, submission_id: str) -> bool:
@@ -199,21 +212,33 @@ class ECLProvider(CloudLabProvider):
         # TODO: Implement actual cancellation
         return False
 
-    def get_available_instruments(self) -> list[dict]:
+    def get_available_instruments(self) -> list[JsonObject]:
         """Return list of instruments available at ECL."""
         # Based on ECL's published capabilities
         return [
             {"name": "ABI 3730xl", "type": "Sequencer", "description": "Sanger sequencing"},
             {"name": "QuantStudio 7 Flex", "type": "qPCR", "description": "Real-time PCR"},
-            {"name": "Tecan Infinite M1000", "type": "Plate Reader", "description": "Absorbance, fluorescence, luminescence"},
-            {"name": "Hamilton STAR", "type": "Liquid Handler", "description": "Automated liquid handling"},
-            {"name": "Eppendorf epMotion", "type": "Liquid Handler", "description": "Automated pipetting"},
+            {
+                "name": "Tecan Infinite M1000",
+                "type": "Plate Reader",
+                "description": "Absorbance, fluorescence, luminescence",
+            },
+            {
+                "name": "Hamilton STAR",
+                "type": "Liquid Handler",
+                "description": "Automated liquid handling",
+            },
+            {
+                "name": "Eppendorf epMotion",
+                "type": "Liquid Handler",
+                "description": "Automated pipetting",
+            },
             {"name": "Thermo Multidrop", "type": "Dispenser", "description": "Bulk dispensing"},
             {"name": "BioTek Cytation 5", "type": "Imager", "description": "Cell imaging"},
             {"name": "Agilent Bioanalyzer", "type": "QC", "description": "DNA/RNA quality control"},
         ]
 
-    def get_supported_assays(self) -> list[dict]:
+    def get_supported_assays(self) -> list[JsonObject]:
         """Return list of supported assay types at ECL."""
         return [
             {"name": "Sanger Sequencing", "function": "ExperimentSequencing"},

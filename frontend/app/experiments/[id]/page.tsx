@@ -12,7 +12,7 @@ import { formatUsd } from "@/lib/format";
 export default function ExperimentDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, authChecked } = useAuth();
   const [experiment, setExperiment] = useState<Experiment | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -21,6 +21,9 @@ export default function ExperimentDetailPage() {
   const experimentId = params.id as string;
 
   useEffect(() => {
+    if (!authChecked) {
+      return;
+    }
     if (!isAuthenticated()) {
       router.push("/login");
       return;
@@ -31,25 +34,32 @@ export default function ExperimentDetailPage() {
         const data = await getExperiment(experimentId);
         setExperiment(data);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load experiment");
+        setError(
+          err instanceof Error ? err.message : "Failed to load experiment",
+        );
       } finally {
         setLoading(false);
       }
     }
 
     fetchExperiment();
-  }, [isAuthenticated, router, experimentId]);
+  }, [authChecked, isAuthenticated, router, experimentId]);
 
   const handleCancel = async () => {
+    const reason = prompt("Please provide a reason for cancellation:");
+    if (!reason) return;
+
     if (!confirm("Are you sure you want to cancel this experiment?")) return;
 
     setCancelling(true);
     try {
-      await cancelExperiment(experimentId);
+      await cancelExperiment(experimentId, reason);
       const data = await getExperiment(experimentId);
       setExperiment(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to cancel experiment");
+      setError(
+        err instanceof Error ? err.message : "Failed to cancel experiment",
+      );
     } finally {
       setCancelling(false);
     }
@@ -83,7 +93,10 @@ export default function ExperimentDetailPage() {
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
-        <Link href="/dashboard" className="text-indigo-600 hover:text-indigo-500 text-sm">
+        <Link
+          href="/dashboard"
+          className="text-indigo-600 hover:text-indigo-500 text-sm"
+        >
           &larr; Back to Dashboard
         </Link>
       </div>
@@ -130,10 +143,18 @@ export default function ExperimentDetailPage() {
           {/* Operator Info */}
           {experiment.operator && (
             <div>
-              <h2 className="text-sm font-medium text-gray-500 mb-2">Operator</h2>
+              <h2 className="text-sm font-medium text-gray-500 mb-2">
+                Operator
+              </h2>
               <div className="text-sm">
-                <p>Reputation: {experiment.operator.reputation_score.toFixed(1)}/5.0</p>
-                <p>Completed experiments: {experiment.operator.completed_experiments}</p>
+                <p>
+                  Reputation: {experiment.operator.reputation_score.toFixed(1)}
+                  /5.0
+                </p>
+                <p>
+                  Completed experiments:{" "}
+                  {experiment.operator.completed_experiments}
+                </p>
               </div>
             </div>
           )}
@@ -141,11 +162,11 @@ export default function ExperimentDetailPage() {
           {/* Hypothesis */}
           {spec.hypothesis && (
             <div>
-              <h2 className="text-sm font-medium text-gray-500 mb-2">Hypothesis</h2>
+              <h2 className="text-sm font-medium text-gray-500 mb-2">
+                Hypothesis
+              </h2>
               <div className="bg-gray-50 rounded p-3 text-sm">
-                <p className="font-medium">
-                  {spec.hypothesis.statement}
-                </p>
+                <p className="font-medium">{spec.hypothesis.statement}</p>
                 <p className="text-gray-500 mt-2">
                   Null: {spec.hypothesis.null_hypothesis}
                 </p>
@@ -171,7 +192,9 @@ export default function ExperimentDetailPage() {
 
           {/* Full Specification */}
           <div>
-            <h2 className="text-sm font-medium text-gray-500 mb-2">Full Specification</h2>
+            <h2 className="text-sm font-medium text-gray-500 mb-2">
+              Full Specification
+            </h2>
             <pre className="bg-gray-50 rounded p-3 text-xs overflow-x-auto">
               {JSON.stringify(spec, null, 2)}
             </pre>

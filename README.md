@@ -16,13 +16,16 @@ A complete system for connecting scientific ideas to laboratory capacity. This r
 | Schemas | **Complete** | All 3 schemas fully defined |
 | Router (Python) | **Complete** | 674 lines, full routing logic |
 | Router (TypeScript) | **Complete** | 437 lines, mirrors Python |
-| OpenAPI Spec | **Complete** | 1362 lines, all endpoints defined |
+| OpenAPI Spec | **Partial** | Core endpoints defined; cloud labs/hypothesis endpoints pending |
 | MCP Server | **Complete** | [Separate repo](https://github.com/litmus-science/litmus-mcp) |
 | Tutorials | **Complete** | [Separate repo](https://github.com/litmus-science/litmus-docs) |
 | Case Studies | **Complete** | [Separate repo](https://github.com/litmus-science/litmus-docs) |
 | Examples | **Complete** | All 8 experiment types covered |
 | Tests | **Partial** | Router tests covered; backend/MCP tests pending |
-| Backend API | **Complete** | FastAPI implementation of OpenAPI spec |
+| Backend API | **Complete** | FastAPI implementation with 30+ endpoints |
+| Hypothesis Library | **Complete** | Save, manage, and reuse hypotheses |
+| Edison Integration | **Complete** | AI-powered hypothesis generation |
+| Cloud Labs | **Complete** | ECL and Strateos protocol translation |
 
 See [TODO.md](TODO.md) for detailed roadmap and next steps.
 
@@ -72,7 +75,25 @@ litmus-project/
 │   ├── schemas.py                      # Pydantic request/response schemas
 │   ├── auth.py                         # Authentication and authorization
 │   ├── requirements.txt                # Backend dependencies
-│   └── README.md                       # Backend documentation
+│   ├── README.md                       # Backend documentation
+│   ├── cloud_labs/                     # Cloud lab integrations
+│   │   ├── registry.py                 # Provider registry
+│   │   ├── base.py                     # Base translator/provider classes
+│   │   ├── ecl/                        # Enko Cloud Lab (SLL protocol)
+│   │   └── strateos/                   # Strateos (Autoprotocol JSON)
+│   └── services/                       # Business logic services
+│       ├── edison_client.py            # Edison Scientific API client
+│       ├── edison_integration.py       # Edison hypothesis pipeline
+│       ├── llm_service.py              # LLM service abstraction
+│       ├── experiment_interpreter.py   # Experiment analysis
+│       └── prompts/                    # LLM prompt templates
+├── frontend/                           # Next.js 15 React application
+│   ├── app/                            # App router pages
+│   │   ├── hypothesize/                # Hypothesis generation UI
+│   │   ├── experiments/                # Experiment management
+│   │   └── operator/                   # Operator job management
+│   ├── components/                     # React components
+│   └── lib/                            # Utilities and API clients
 ├── api/
 │   └── openapi.yaml                    # REST API specification (OpenAPI 3.1)
 ├── examples/
@@ -179,20 +200,185 @@ Default weights sum to ~1.0 for interpretable scores.
 
 ---
 
+## Hypothesis Library
+
+The Hypothesis Library allows users to save, manage, and reuse hypotheses across experiments.
+
+### Hypothesis Sources
+
+- **Manual Entry**: Create hypotheses directly in the UI
+- **Edison-Generated**: AI-generated hypotheses from research queries
+- **Experiment-Derived**: Save hypotheses from submitted experiments
+
+### Hypothesis Status
+
+| Status | Description |
+|--------|-------------|
+| `DRAFT` | Work in progress, not yet used |
+| `USED` | Associated with a submitted experiment |
+| `ARCHIVED` | No longer active |
+
+### Usage Flow
+
+1. Create or generate a hypothesis
+2. Review and refine the hypothesis statement
+3. Select hypothesis when creating an experiment
+4. Hypothesis status updates to `USED` when experiment is submitted
+
+---
+
+## Edison Scientific Integration
+
+Edison Scientific provides AI-powered hypothesis generation by analyzing scientific literature and research context.
+
+### How It Works
+
+1. **Submit Query**: Describe your research question or area of interest
+2. **Literature Analysis**: Edison analyzes relevant scientific papers
+3. **Hypothesis Generation**: Receive suggested hypotheses with supporting rationale
+4. **Reasoning Trace**: View the step-by-step reasoning process
+5. **Save to Library**: Add generated hypotheses to your library
+
+### Edison Run Status
+
+| Status | Description |
+|--------|-------------|
+| `PENDING` | Task queued, waiting to start |
+| `RUNNING` | Analysis in progress |
+| `COMPLETED` | Results ready |
+| `FAILED` | Task encountered an error |
+
+### API Usage
+
+```bash
+# Start Edison hypothesis generation
+curl -X POST http://localhost:8000/cloud-labs/edison/start \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Novel antimicrobial peptides targeting gram-negative bacteria"}'
+
+# Check status
+curl http://localhost:8000/cloud-labs/edison/status/<run_id> \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+## Cloud Labs Integration
+
+Litmus integrates with automated cloud laboratories to execute experiments without manual intervention.
+
+### Supported Providers
+
+| Provider | Protocol Format | Status |
+|----------|-----------------|--------|
+| **Enko Cloud Lab (ECL)** | SLL (Symbolic Lab Language) | Available |
+| **Strateos** | Autoprotocol JSON | Available |
+
+### Translation Flow
+
+1. **Interpret**: LLM analyzes experiment intake and extracts key parameters
+2. **Translate**: Convert intake to provider-specific protocol format
+3. **Validate**: Check protocol against provider constraints
+4. **Submit**: Send to cloud lab for execution
+
+### Supported Experiment Types
+
+Cloud lab translation currently supports:
+- `CELL_VIABILITY_IC50`
+- `MIC_MBC_ASSAY`
+- `QPCR_EXPRESSION`
+
+### API Usage
+
+```bash
+# List available providers
+curl http://localhost:8000/cloud-labs/providers \
+  -H "Authorization: Bearer <token>"
+
+# Translate an experiment
+curl -X POST http://localhost:8000/cloud-labs/experiments/<id>/translate \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"provider_id": "ecl"}'
+```
+
+---
+
 ## API Endpoints
 
-The OpenAPI spec (`api/openapi.yaml`) defines:
+The backend implements 30+ endpoints across several categories:
+
+### Core Experiment Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/experiments` | POST | Submit new experiment |
 | `/experiments` | GET | List experiments |
 | `/experiments/{id}` | GET | Get experiment details |
+| `/experiments/{id}` | PATCH | Update experiment |
+| `/experiments/{id}` | DELETE | Cancel experiment (requires reason) |
 | `/experiments/{id}/results` | GET | Get results |
+| `/experiments/{id}/approve` | POST | Approve results |
+| `/experiments/{id}/dispute` | POST | Dispute results |
 | `/validate` | POST | Validate without submitting |
 | `/estimate` | POST | Get cost/time estimate |
 | `/templates` | GET | List standard protocols |
 | `/templates/{id}` | GET | Get template details |
+
+### Hypothesis Library
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/hypotheses` | GET | List user hypotheses |
+| `/hypotheses` | POST | Create hypothesis |
+| `/hypotheses/{id}` | GET | Get hypothesis |
+| `/hypotheses/{id}` | PATCH | Update hypothesis |
+| `/hypotheses/{id}` | DELETE | Delete hypothesis |
+
+### Edison Scientific Integration
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/cloud-labs/edison` | POST | Generate hypothesis via Edison |
+| `/cloud-labs/edison/start` | POST | Start Edison task |
+| `/cloud-labs/edison/active` | GET | Get current Edison run |
+| `/cloud-labs/edison/runs` | GET | List Edison runs (paginated) |
+| `/cloud-labs/edison/runs/{id}/draft` | PATCH | Update draft hypothesis |
+| `/cloud-labs/edison/runs/clear-history` | POST | Clear Edison history |
+| `/cloud-labs/edison/status/{id}` | GET | Get Edison run status |
+
+### Cloud Labs
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/cloud-labs/providers` | GET | List cloud lab providers |
+| `/cloud-labs/providers/{id}` | GET | Get provider info |
+| `/cloud-labs/supported-types` | GET | List supported experiment types |
+| `/cloud-labs/interpret` | POST | Interpret experiments with LLM |
+| `/cloud-labs/translate` | POST | Translate intake to cloud lab protocol |
+| `/cloud-labs/validate` | POST | Validate intake for provider |
+| `/cloud-labs/experiments/{id}/translate` | POST | Translate specific experiment |
+| `/cloud-labs/submissions` | GET | List cloud lab submissions |
+| `/cloud-labs/submissions/{id}` | GET | Get submission details |
+
+### System & Auth
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/config` | GET | Configuration bootstrap |
+| `/auth/register` | POST | Register new user |
+| `/auth/token` | POST | Get access token |
+| `/auth/me` | GET | Get current user info |
+
+### Operators
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/operator/jobs` | GET | List available jobs |
+| `/operator/jobs/{id}/claim` | POST | Claim job |
+| `/operator/jobs/{id}/submit` | POST | Submit results |
 
 ---
 
@@ -238,6 +424,17 @@ ajv validate -s schemas/experiment_intake.json -d examples/intake_viability.json
 ---
 
 ## Configuration
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `LITMUS_SECRET_KEY` | Yes | JWT signing key (generate with `openssl rand -hex 32`) |
+| `LITMUS_DATABASE_URL` | Yes | Database connection URL |
+| `LITMUS_CORS_ORIGINS` | No | Comma-separated allowed origins |
+| `LITMUS_CORS_ORIGIN_REGEX` | No | Regex pattern for allowed origins |
+| `LITMUS_DEBUG` | No | Enable debug mode (logs SQL, allows localhost CORS) |
+| `LITMUS_AUTH_DISABLED` | No | Disable authentication (development only) |
 
 ### Routing Weights
 

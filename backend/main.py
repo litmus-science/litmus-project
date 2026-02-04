@@ -4,48 +4,123 @@ Litmus Science Backend API - FastAPI Application
 Main entry point for the REST API implementing the OpenAPI specification.
 """
 
+from __future__ import annotations
+
 import json
 import os
-import sys
 import time
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Optional, List
-from contextlib import asynccontextmanager
 from collections import defaultdict
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
+from typing import cast
 
-# Load environment variables from .env file at project root
-# This allows sharing .env between frontend and backend
-from dotenv import load_dotenv
-PROJECT_ROOT = Path(__file__).parent.parent
-load_dotenv(PROJECT_ROOT / ".env")
-
-from fastapi import FastAPI, HTTPException, Depends, Query, status, Request
+import httpx
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, and_, func, or_
+from pydantic import ValidationError
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-import httpx
+from starlette.datastructures import UploadFile as StarletteUploadFile
 
-# Add project root to path for imports
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from backend.models import (
-    init_db, get_db, Experiment as ExperimentModel, ExperimentResult,
-    Template as TemplateModel, User, OperatorProfile, Dispute, FileUpload,
-    ExperimentStatus as DBExperimentStatus, PaymentStatus as DBPaymentStatus,
-    ConfidenceLevel as DBConfidenceLevel, DisputeReason as DBDisputeReason,
-    generate_uuid
-)
-from backend.auth import (
-    get_current_user, get_current_operator, AuthUser,
-    get_password_hash, create_access_token, authenticate_user, hash_api_key
-)
 from backend import schemas
+from backend.auth import (
+    AuthUser,
+    authenticate_user,
+    create_access_token,
+    decode_token,
+    get_current_operator,
+    get_current_user,
+    get_password_hash,
+    get_rate_limit,
+    get_user_by_id,
+    hash_api_key,
+)
+from backend.cloud_labs import TranslationError, get_translator
+from backend.cloud_labs import list_providers as get_providers_list
+from backend.cloud_labs.models import (
+    EdisonClearHistoryResponse,
+    EdisonJobType,
+    EdisonReasoningTraceResponse,
+    EdisonRunDraft,
+    EdisonRunDraftUpdateRequest,
+    EdisonRunListResponse,
+    EdisonRunStartResponse,
+    EdisonRunStatusResponse,
+    EdisonRunSummary,
+    EdisonTranslateRequest,
+    EdisonTranslateResponse,
+    LLMInterpretRequest,
+    LLMInterpretResponse,
+    ProviderInfoResponse,
+    ProvidersListResponse,
+    SupportedTypesResponse,
+    TranslateRequest,
+    TranslateResponse,
+    TranslationResultResponse,
+    ValidateForProviderRequest,
+    ValidationIssueResponse,
+)
+from backend.cloud_labs.registry import (
+    get_provider_info,
+    get_supported_experiment_types,
+    validate_intake_for_provider,
+)
+from backend.cloud_labs.registry import (
+    translate_intake as do_translate_intake,
+)
+from backend.env import PROJECT_ROOT
+from backend.models import (
+    CloudLabSubmission,
+    Dispute,
+    ExperimentResult,
+    OperatorProfile,
+    User,
+    generate_uuid,
+    get_db,
+    init_db,
+)
+from backend.models import (
+    ConfidenceLevel as DBConfidenceLevel,
+)
+from backend.models import (
+    DisputeReason as DBDisputeReason,
+)
+from backend.models import (
+    EdisonRun as EdisonRunModel,
+)
+from backend.models import (
+    EdisonRunStatus as DBEdisonRunStatus,
+)
+from backend.models import (
+    Experiment as ExperimentModel,
+)
+from backend.models import (
+    ExperimentStatus as DBExperimentStatus,
+)
+from backend.models import (
+    Hypothesis as HypothesisModel,
+)
+from backend.models import (
+    HypothesisStatus as DBHypothesisStatus,
+)
+from backend.models import (
+    PaymentStatus as DBPaymentStatus,
+)
+from backend.models import (
+    Template as TemplateModel,
+)
+from backend.services.edison_client import EdisonJobType as EdisonJobTypeClient
+from backend.services.edison_integration import get_edison_litmus_integration
+from backend.services.edison_types import EdisonReasoningTrace
+from backend.services.experiment_interpreter import get_experiment_interpreter
+from backend.types import JsonObject, JsonValue
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize database on startup."""
     await init_db()
     await seed_templates()
@@ -78,10 +153,11 @@ _cors_origins = [o.strip() for o in _cors_origins if o.strip()]
 _cors_origin_regex = os.environ.get("LITMUS_CORS_ORIGIN_REGEX", "").strip() or None
 
 # Check if we're in development mode (auth disabled or debug mode)
-_dev_mode = (
-    os.environ.get("LITMUS_AUTH_DISABLED", "").lower() in ("1", "true", "yes") or
-    os.environ.get("LITMUS_DEBUG", "").lower() in ("1", "true", "yes")
-)
+_dev_mode = os.environ.get("LITMUS_AUTH_DISABLED", "").lower() in (
+    "1",
+    "true",
+    "yes",
+) or os.environ.get("LITMUS_DEBUG", "").lower() in ("1", "true", "yes")
 
 # Default to restrictive origins in production, permissive in dev
 if not _cors_origins:
@@ -95,45 +171,71 @@ if not _cors_origins:
             "https://docs.litmus.science",
         ]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_origin_regex=_cors_origin_regex,
-    allow_credentials=not _dev_mode,  # Can't use credentials with "*" origins
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID"],
-)
-
 
 # =============================================================================
 # Rate Limiting Middleware
 # =============================================================================
 
 # In-memory rate limit storage (use Redis in production)
-_rate_limit_storage: dict[str, dict] = defaultdict(lambda: {"minute": [], "day": []})
+_rate_limit_storage: dict[str, dict[str, list[float]]] = defaultdict(
+    lambda: {"minute": [], "day": []}
+)
 
-RATE_LIMITS = {
-    "standard": {"per_minute": 100, "per_day": 1000},
-    "pro": {"per_minute": 1000, "per_day": 10000},
-    "ai_agent": {"per_minute": 500, "per_day": 5000},
-}
+
+def _as_object(value: JsonValue | None) -> JsonObject:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_str(value: JsonValue | None, default: str | None = None) -> str | None:
+    if isinstance(value, str):
+        return value
+    return default
+
+
+def _as_float(value: JsonValue | None) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _as_str_list(value: JsonValue | None) -> list[str]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, str)]
+    return []
 
 
 @app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
+async def rate_limit_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     """Enforce rate limits based on user tier."""
-    # Skip rate limiting for health checks and docs
-    if request.url.path in ("/health", "/docs", "/redoc", "/openapi.json"):
+    # Skip rate limiting for health checks/docs, dev-mode traffic, and CORS preflight.
+    if (
+        request.url.path in ("/health", "/docs", "/redoc", "/openapi.json")
+        or _dev_mode
+        or request.method == "OPTIONS"
+    ):
         return await call_next(request)
 
-    # Get client identifier (API key or IP as fallback)
+    # Identify the caller. Prefer authenticated identity over IP.
     api_key = request.headers.get("X-API-Key", "")
-    client_id = api_key if api_key else request.client.host if request.client else "unknown"
+    authorization = request.headers.get("Authorization", "")
+    token = ""
+    if authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+    token_data = decode_token(token) if token else None
 
-    # Default to standard tier (in production, look up tier from database)
-    tier = "standard"
+    if token_data:
+        client_id = token_data.user_id
+    elif api_key:
+        client_id = f"api_key:{hash_api_key(api_key)}"
+    elif request.client:
+        client_id = request.client.host
+    else:
+        client_id = "unknown"
 
-    limits = RATE_LIMITS.get(tier, RATE_LIMITS["standard"])
+    tier = token_data.rate_limit_tier if token_data else "standard"
+    limits = get_rate_limit(tier)
     now = time.time()
     minute_ago = now - 60
     day_ago = now - 86400
@@ -150,25 +252,29 @@ async def rate_limit_middleware(request: Request, call_next):
     if minute_count >= limits["per_minute"]:
         return JSONResponse(
             status_code=429,
-            content={"error": {"code": "rate_limit_exceeded", "message": "Too many requests per minute"}},
+            content={
+                "error": {"code": "rate_limit_exceeded", "message": "Too many requests per minute"}
+            },
             headers={
                 "X-RateLimit-Limit": str(limits["per_minute"]),
                 "X-RateLimit-Remaining": "0",
                 "X-RateLimit-Reset": str(int(minute_ago + 60)),
                 "Retry-After": "60",
-            }
+            },
         )
 
     if day_count >= limits["per_day"]:
         return JSONResponse(
             status_code=429,
-            content={"error": {"code": "rate_limit_exceeded", "message": "Daily request limit exceeded"}},
+            content={
+                "error": {"code": "rate_limit_exceeded", "message": "Daily request limit exceeded"}
+            },
             headers={
                 "X-RateLimit-Limit": str(limits["per_day"]),
                 "X-RateLimit-Remaining": "0",
                 "X-RateLimit-Reset": str(int(day_ago + 86400)),
                 "Retry-After": "3600",
-            }
+            },
         )
 
     # Record this request
@@ -183,94 +289,131 @@ async def rate_limit_middleware(request: Request, call_next):
     return response
 
 
+# Add CORS middleware after functional middleware so it can attach headers to all responses.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_origin_regex=_cors_origin_regex,
+    allow_credentials=not _dev_mode,  # Can't use credentials with "*" origins
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID"],
+)
+
+
 # Helper functions
-def load_schema(name: str) -> dict:
+def load_schema(name: str) -> JsonObject:
     """Load a JSON schema from the schemas directory."""
     schema_path = PROJECT_ROOT / "schemas" / f"{name}.json"
     if schema_path.exists():
-        return json.loads(schema_path.read_text())
+        loaded = json.loads(schema_path.read_text())
+        return loaded if isinstance(loaded, dict) else {}
     return {}
 
 
-def validate_intake(intake: dict) -> schemas.ValidationResult:
+def validate_intake(intake: JsonObject) -> schemas.ValidationResult:
     """Validate intake against schema."""
-    errors = []
-    warnings = []
-    safety_flags = []
+    errors: list[schemas.ValidationError] = []
+    warnings: list[schemas.ValidationError] = []
+    safety_flags: list[str] = []
 
     # Basic validation
-    if not intake.get("experiment_type"):
-        errors.append(schemas.ValidationError(
-            path="experiment_type",
-            code="required_field_missing",
-            message="experiment_type is required",
-            suggestion="Specify one of: SANGER_PLASMID_VERIFICATION, QPCR_EXPRESSION, etc."
-        ))
+    if not _as_str(intake.get("experiment_type")):
+        errors.append(
+            schemas.ValidationError(
+                path="experiment_type",
+                code="required_field_missing",
+                message="experiment_type is required",
+                suggestion="Specify one of: SANGER_PLASMID_VERIFICATION, QPCR_EXPRESSION, etc.",
+            )
+        )
 
     # Check required fields
-    if not intake.get("title"):
-        errors.append(schemas.ValidationError(
-            path="title",
-            code="required_field_missing",
-            message="title is required"
-        ))
+    if not _as_str(intake.get("title")):
+        errors.append(
+            schemas.ValidationError(
+                path="title", code="required_field_missing", message="title is required"
+            )
+        )
 
     # Check BSL level (schema uses "bsl", not "bsl_level")
-    compliance = intake.get("compliance", {})
-    bsl = compliance.get("bsl", "BSL1")
+    compliance = _as_object(intake.get("compliance"))
+    bsl = _as_str(compliance.get("bsl"), "BSL1") or "BSL1"
     if bsl not in ["BSL1", "BSL2"]:
         safety_flags.append("bsl_level_exceeded")
         safety_flags.append("safety_rejected")
-        errors.append(schemas.ValidationError(
-            path="compliance.bsl",
-            code="safety_violation",
-            message=f"BSL level {bsl} is not supported",
-            suggestion="Only BSL1 and BSL2 experiments are allowed"
-        ))
+        errors.append(
+            schemas.ValidationError(
+                path="compliance.bsl",
+                code="safety_violation",
+                message=f"BSL level {bsl} is not supported",
+                suggestion="Only BSL1 and BSL2 experiments are allowed",
+            )
+        )
+
+    if bsl == "BSL2" and compliance.get("human_derived_material") is True:
+        warnings.append(
+            schemas.ValidationError(
+                path="compliance.human_derived_material",
+                code="human_material_bsl2_review",
+                message="Human-derived materials at BSL2 require biosafety review documentation",
+                suggestion="Confirm IRB/biosafety approvals before submission",
+            )
+        )
 
     # Check for controlled substances in materials_provided
-    materials = intake.get("materials_provided", [])
+    materials_value = intake.get("materials_provided")
+    materials = materials_value if isinstance(materials_value, list) else []
     for material in materials:
-        if material.get("hazardous"):
-            if not compliance.get("sds_attached"):
-                warnings.append(schemas.ValidationError(
-                    path="compliance.sds_attached",
-                    code="recommended_field_missing",
-                    message="SDS should be attached for hazardous materials",
-                    suggestion="Set compliance.sds_attached to true and attach SDS document"
-                ))
+        if not isinstance(material, dict):
+            continue
+        if material.get("hazardous") is True:
+            if compliance.get("sds_attached") is not True:
+                warnings.append(
+                    schemas.ValidationError(
+                        path="compliance.sds_attached",
+                        code="recommended_field_missing",
+                        message="SDS should be attached for hazardous materials",
+                        suggestion="Set compliance.sds_attached to true and attach SDS document",
+                    )
+                )
                 break
 
     # Check hypothesis completeness
-    hypothesis = intake.get("hypothesis", {})
-    if not hypothesis.get("statement"):
-        warnings.append(schemas.ValidationError(
-            path="hypothesis.statement",
-            code="recommended_field_missing",
-            message="Hypothesis statement improves clarity",
-            suggestion="Add a clear, testable hypothesis statement"
-        ))
+    hypothesis = _as_object(intake.get("hypothesis"))
+    if not _as_str(hypothesis.get("statement")):
+        warnings.append(
+            schemas.ValidationError(
+                path="hypothesis.statement",
+                code="recommended_field_missing",
+                message="Hypothesis statement improves clarity",
+                suggestion="Add a clear, testable hypothesis statement",
+            )
+        )
 
     # Check turnaround_budget required fields
-    turnaround = intake.get("turnaround_budget", {})
-    if not turnaround.get("budget_max_usd"):
-        errors.append(schemas.ValidationError(
-            path="turnaround_budget.budget_max_usd",
-            code="required_field_missing",
-            message="budget_max_usd is required"
-        ))
+    turnaround = _as_object(intake.get("turnaround_budget"))
+    if _as_float(turnaround.get("budget_max_usd")) is None:
+        errors.append(
+            schemas.ValidationError(
+                path="turnaround_budget.budget_max_usd",
+                code="required_field_missing",
+                message="budget_max_usd is required",
+            )
+        )
 
     # Check deliverables required fields
-    deliverables = intake.get("deliverables", {})
-    if not deliverables.get("minimum_package_level"):
-        errors.append(schemas.ValidationError(
-            path="deliverables.minimum_package_level",
-            code="required_field_missing",
-            message="minimum_package_level is required"
-        ))
+    deliverables = _as_object(intake.get("deliverables"))
+    if not _as_str(deliverables.get("minimum_package_level")):
+        errors.append(
+            schemas.ValidationError(
+                path="deliverables.minimum_package_level",
+                code="required_field_missing",
+                message="minimum_package_level is required",
+            )
+        )
 
     # Validate experiment-type specific sections
-    exp_type = intake.get("experiment_type")
+    exp_type = _as_str(intake.get("experiment_type"))
     exp_type_to_section = {
         "SANGER_PLASMID_VERIFICATION": "sanger",
         "QPCR_EXPRESSION": "qpcr",
@@ -281,26 +424,30 @@ def validate_intake(intake: dict) -> schemas.ValidationResult:
         "ZONE_OF_INHIBITION": "zone_of_inhibition",
         "CUSTOM": "custom_protocol",
     }
-    required_section = exp_type_to_section.get(exp_type)
+    required_section = exp_type_to_section.get(exp_type) if exp_type else None
     if required_section and not intake.get(required_section):
-        errors.append(schemas.ValidationError(
-            path=required_section,
-            code="required_field_missing",
-            message=f"{required_section} section is required for {exp_type}",
-            suggestion=f"Add the {required_section} section with experiment-specific parameters"
-        ))
+        errors.append(
+            schemas.ValidationError(
+                path=required_section,
+                code="required_field_missing",
+                message=f"{required_section} section is required for {exp_type}",
+                suggestion=(
+                    f"Add the {required_section} section with experiment-specific parameters"
+                ),
+            )
+        )
 
     return schemas.ValidationResult(
         valid=len(errors) == 0 and "safety_rejected" not in safety_flags,
         errors=errors,
         warnings=warnings,
-        safety_flags=safety_flags
+        safety_flags=safety_flags,
     )
 
 
-def estimate_cost(intake: dict) -> schemas.CostEstimate:
+def estimate_cost(intake: JsonObject) -> schemas.CostEstimate:
     """Generate cost estimate for an experiment."""
-    exp_type = intake.get("experiment_type", "CUSTOM")
+    exp_type = _as_str(intake.get("experiment_type"), "CUSTOM") or "CUSTOM"
 
     # Base costs by experiment type
     base_costs = {
@@ -317,7 +464,7 @@ def estimate_cost(intake: dict) -> schemas.CostEstimate:
     low, typical, high = base_costs.get(exp_type, (200, 400, 800))
 
     # Privacy premium - NOTE: privacy is at root level in schema, NOT under compliance
-    privacy = intake.get("privacy", "open")
+    privacy = _as_str(intake.get("privacy"), "open") or "open"
     privacy_multiplier = {
         "open": 0,
         "delayed_6mo": 0.10,
@@ -328,8 +475,10 @@ def estimate_cost(intake: dict) -> schemas.CostEstimate:
     privacy_premium = typical * privacy_multiplier
 
     # Package level adjustment
-    deliverables = intake.get("deliverables", {})
-    package_level = deliverables.get("minimum_package_level", "L1_BASIC_QC")
+    deliverables = _as_object(intake.get("deliverables"))
+    package_level = (
+        _as_str(deliverables.get("minimum_package_level"), "L1_BASIC_QC") or "L1_BASIC_QC"
+    )
     package_multiplier = {
         "L0_RAW_ONLY": 0.8,
         "L1_BASIC_QC": 1.0,
@@ -337,8 +486,8 @@ def estimate_cost(intake: dict) -> schemas.CostEstimate:
     }.get(package_level, 1.0)
 
     # Priority adjustment
-    turnaround = intake.get("turnaround_budget", {})
-    priority = turnaround.get("priority", "standard")
+    turnaround = _as_object(intake.get("turnaround_budget"))
+    priority = _as_str(turnaround.get("priority"), "standard") or "standard"
     priority_multiplier = {
         "standard": 1.0,
         "expedited": 1.25,
@@ -354,26 +503,26 @@ def estimate_cost(intake: dict) -> schemas.CostEstimate:
         estimated_cost_usd=schemas.CostRange(
             low=round(adjusted_low, 2),
             typical=round(adjusted_typical + privacy_premium, 2),
-            high=round(adjusted_high + (adjusted_high * privacy_multiplier), 2)
+            high=round(adjusted_high + (adjusted_high * privacy_multiplier), 2),
         ),
         estimated_turnaround_days=schemas.TurnaroundEstimate(
             standard=14 if priority == "standard" else 10,
-            expedited=7 if priority == "standard" else 5
+            expedited=7 if priority == "standard" else 5,
         ),
         cost_breakdown=schemas.CostBreakdown(
             materials=round(adjusted_typical * 0.3, 2),
             labor=round(adjusted_typical * 0.4, 2),
             equipment=round(adjusted_typical * 0.1, 2),
             platform_fee=round(adjusted_typical * 0.2, 2),
-            privacy_premium=round(privacy_premium, 2)
+            privacy_premium=round(privacy_premium, 2),
         ),
-        operator_availability="high"
+        operator_availability="high",
     )
 
 
-async def seed_templates():
+async def seed_templates() -> None:
     """Seed initial protocol templates."""
-    from backend.models import async_session, Template
+    from backend.models import Template, async_session
 
     templates = [
         {
@@ -385,7 +534,7 @@ async def seed_templates():
             "version": "1.0",
             "parameters": [
                 {"name": "primer_type", "type": "string", "required": True},
-                {"name": "read_length", "type": "integer", "default": "800"}
+                {"name": "read_length", "type": "integer", "default": "800"},
             ],
             "equipment_required": ["Sanger sequencer", "Thermocycler"],
             "estimated_duration_hours": 4,
@@ -402,7 +551,7 @@ async def seed_templates():
             "parameters": [
                 {"name": "cell_line", "type": "string", "required": True},
                 {"name": "compound_concentrations", "type": "array", "required": True},
-                {"name": "incubation_time_hours", "type": "integer", "default": "48"}
+                {"name": "incubation_time_hours", "type": "integer", "default": "48"},
             ],
             "equipment_required": ["Cell culture hood", "CO2 incubator", "Plate reader"],
             "estimated_duration_hours": 72,
@@ -418,7 +567,7 @@ async def seed_templates():
             "version": "1.0",
             "parameters": [
                 {"name": "organism", "type": "string", "required": True},
-                {"name": "compound_range", "type": "string", "required": True}
+                {"name": "compound_range", "type": "string", "required": True},
             ],
             "equipment_required": ["Biosafety cabinet", "Incubator", "Spectrophotometer"],
             "estimated_duration_hours": 24,
@@ -434,7 +583,7 @@ async def seed_templates():
             "version": "1.0",
             "parameters": [
                 {"name": "target_genes", "type": "array", "required": True},
-                {"name": "reference_gene", "type": "string", "default": "GAPDH"}
+                {"name": "reference_gene", "type": "string", "default": "GAPDH"},
             ],
             "equipment_required": ["Real-time PCR system", "RNA extraction kit"],
             "estimated_duration_hours": 8,
@@ -451,7 +600,7 @@ async def seed_templates():
             "parameters": [
                 {"name": "enzyme", "type": "string", "required": True},
                 {"name": "substrate", "type": "string", "required": True},
-                {"name": "inhibitor_concentrations", "type": "array", "required": True}
+                {"name": "inhibitor_concentrations", "type": "array", "required": True},
             ],
             "equipment_required": ["Plate reader", "Multichannel pipettes"],
             "estimated_duration_hours": 4,
@@ -462,9 +611,7 @@ async def seed_templates():
 
     async with async_session() as session:
         for t in templates:
-            existing = await session.execute(
-                select(Template).where(Template.id == t["id"])
-            )
+            existing = await session.execute(select(Template).where(Template.id == t["id"]))
             if not existing.scalar_one_or_none():
                 template = Template(**t)
                 session.add(template)
@@ -475,17 +622,16 @@ async def seed_templates():
 # Auth Endpoints
 # =============================================================================
 
+
 @app.post("/auth/register", response_model=schemas.UserResponse, tags=["Auth"])
 async def register_user(
-    user_data: schemas.UserCreate,
-    db: AsyncSession = Depends(get_db)
-):
+    user_data: schemas.UserCreate, db: AsyncSession = Depends(get_db)
+) -> schemas.UserResponse:
     """Register a new user account."""
     existing = await db.execute(select(User).where(User.email == user_data.email))
     if existing.scalar_one_or_none():
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered"
         )
 
     api_key = f"lk_{generate_uuid().replace('-', '')}"
@@ -494,7 +640,7 @@ async def register_user(
         hashed_password=get_password_hash(user_data.password),
         name=user_data.name,
         organization=user_data.organization,
-        api_key_hash=hash_api_key(api_key)
+        api_key_hash=hash_api_key(api_key),
     )
     db.add(user)
     await db.commit()
@@ -508,46 +654,74 @@ async def register_user(
         role=user.role,
         rate_limit_tier=user.rate_limit_tier,
         created_at=user.created_at,
-        api_key=api_key
+        api_key=api_key,
     )
 
 
 @app.post("/auth/token", response_model=schemas.Token, tags=["Auth"])
 async def login(
-    credentials: schemas.TokenRequest,
-    db: AsyncSession = Depends(get_db)
-):
+    credentials: schemas.TokenRequest, db: AsyncSession = Depends(get_db)
+) -> schemas.Token:
     """Get access token with email and password."""
     user = await authenticate_user(db, credentials.email, credentials.password)
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password"
         )
 
     access_token = create_access_token(
-        data={"sub": user.id, "email": user.email, "role": user.role}
+        data={
+            "sub": user.id,
+            "email": user.email,
+            "role": user.role,
+            "rate_limit_tier": user.rate_limit_tier,
+        }
     )
     return schemas.Token(access_token=access_token)
+
+
+@app.get("/auth/me", response_model=schemas.UserResponse, tags=["Auth"])
+async def get_current_user_info(
+    current_user: AuthUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> schemas.UserResponse:
+    """Get current authenticated user info."""
+    user = await get_user_by_id(db, current_user.id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return schemas.UserResponse(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        organization=user.organization,
+        role=user.role,
+        rate_limit_tier=user.rate_limit_tier,
+        created_at=user.created_at,
+        api_key=None,  # Don't expose API key in response
+    )
 
 
 # =============================================================================
 # Experiments Endpoints
 # =============================================================================
 
+
 @app.post(
     "/experiments",
     response_model=schemas.ExperimentCreatedResponse,
     status_code=status.HTTP_201_CREATED,
-    tags=["Experiments"]
+    tags=["Experiments"],
 )
 async def create_experiment(
     request: schemas.ExperimentRequest,
     current_user: AuthUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+) -> schemas.ExperimentCreatedResponse:
     """Submit a new experiment request."""
-    spec = request.model_dump(exclude_none=True)
+    spec_raw = request.model_dump(exclude_none=True)
+    spec: JsonObject = spec_raw if isinstance(spec_raw, dict) else {}
+    metadata = _as_object(spec.get("metadata"))
+    if metadata.get("edison_generated") is True and not _as_str(metadata.get("intake_id")):
+        spec["metadata"] = {**metadata, "intake_id": generate_uuid()}
 
     # Validate
     validation = validate_intake(spec)
@@ -558,16 +732,20 @@ async def create_experiment(
                 detail={
                     "code": "safety_rejected",
                     "message": "Experiment rejected for safety reasons",
-                    "flags": validation.safety_flags
-                }
+                    "flags": validation.safety_flags,
+                },
             )
+        primary_error = validation.errors[0] if validation.errors else None
+        message = "Experiment validation failed"
+        if primary_error:
+            message = f"{message}: {primary_error.path} {primary_error.message}"
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "code": "validation_failed",
-                "message": "Experiment validation failed",
-                "validation_errors": [e.model_dump() for e in validation.errors]
-            }
+                "message": message,
+                "validation_errors": [e.model_dump() for e in validation.errors],
+            },
         )
 
     # Estimate cost
@@ -578,18 +756,14 @@ async def create_experiment(
         requester_id=current_user.id,
         status=DBExperimentStatus.PENDING_REVIEW,
         specification=spec,
-        experiment_type=spec.get("experiment_type"),
+        experiment_type=_as_str(spec.get("experiment_type")),
         estimated_cost_usd=estimate.estimated_cost_usd.typical,
-        webhook_url=spec.get("requester_info", {}).get("webhook_url"),
-        payment_status=DBPaymentStatus.PENDING
+        webhook_url=_as_str(_as_object(spec.get("requester_info")).get("webhook_url")),
+        payment_status=DBPaymentStatus.PENDING,
     )
     db.add(experiment)
     await db.commit()
     await db.refresh(experiment)
-
-    # Auto-approve simple experiments (skip review for now)
-    experiment.status = DBExperimentStatus.OPEN
-    await db.commit()
 
     return schemas.ExperimentCreatedResponse(
         experiment_id=experiment.id,
@@ -600,21 +774,21 @@ async def create_experiment(
         links=schemas.ExperimentLinks(
             self=f"/experiments/{experiment.id}",
             results=f"/experiments/{experiment.id}/results",
-            cancel=f"/experiments/{experiment.id}"
-        )
+            cancel=f"/experiments/{experiment.id}",
+        ),
     )
 
 
 @app.get("/experiments", response_model=schemas.ExperimentListResponse, tags=["Experiments"])
 async def list_experiments(
-    status: Optional[str] = None,
-    created_after: Optional[datetime] = None,
-    created_before: Optional[datetime] = None,
+    status: str | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
     limit: int = Query(20, ge=1, le=100),
-    cursor: Optional[str] = None,
+    cursor: str | None = None,
     current_user: AuthUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+) -> schemas.ExperimentListResponse:
     """List experiments for the authenticated user."""
     filters = [ExperimentModel.requester_id == current_user.id]
     query = select(ExperimentModel).where(*filters)
@@ -628,9 +802,7 @@ async def list_experiments(
     query = query.where(*filters)
 
     if cursor:
-        cursor_row = await db.execute(
-            select(ExperimentModel).where(ExperimentModel.id == cursor)
-        )
+        cursor_row = await db.execute(select(ExperimentModel).where(ExperimentModel.id == cursor))
         cursor_exp = cursor_row.scalar_one_or_none()
         if cursor_exp:
             query = query.where(
@@ -638,15 +810,14 @@ async def list_experiments(
                     ExperimentModel.created_at < cursor_exp.created_at,
                     and_(
                         ExperimentModel.created_at == cursor_exp.created_at,
-                        ExperimentModel.id < cursor_exp.id
-                    )
+                        ExperimentModel.id < cursor_exp.id,
+                    ),
                 )
             )
 
-    query = query.order_by(
-        ExperimentModel.created_at.desc(),
-        ExperimentModel.id.desc()
-    ).limit(limit + 1)
+    query = query.order_by(ExperimentModel.created_at.desc(), ExperimentModel.id.desc()).limit(
+        limit + 1
+    )
 
     result = await db.execute(query)
     experiments = result.scalars().all()
@@ -673,21 +844,21 @@ async def list_experiments(
                 operator=schemas.OperatorInfo(
                     id=e.operator.id,
                     reputation_score=e.operator.reputation_score,
-                    completed_experiments=e.operator.completed_experiments
-                ) if e.operator else None,
+                    completed_experiments=e.operator.completed_experiments,
+                )
+                if e.operator
+                else None,
                 cost=schemas.CostInfo(
                     estimated_usd=e.estimated_cost_usd,
                     final_usd=e.final_cost_usd,
-                    payment_status=schemas.PaymentStatus(e.payment_status.value)
-                )
+                    payment_status=schemas.PaymentStatus(e.payment_status.value),
+                ),
             )
             for e in experiments
         ],
         pagination=schemas.Pagination(
-            total=total_count,
-            cursor=experiments[-1].id if has_more else None,
-            has_more=has_more
-        )
+            total=total_count, cursor=experiments[-1].id if has_more else None, has_more=has_more
+        ),
     )
 
 
@@ -695,12 +866,10 @@ async def list_experiments(
 async def get_experiment(
     experiment_id: str,
     current_user: AuthUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+) -> schemas.Experiment:
     """Get experiment details."""
-    result = await db.execute(
-        select(ExperimentModel).where(ExperimentModel.id == experiment_id)
-    )
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
     experiment = result.scalar_one_or_none()
 
     if not experiment:
@@ -721,13 +890,15 @@ async def get_experiment(
         operator=schemas.OperatorInfo(
             id=experiment.operator.id,
             reputation_score=experiment.operator.reputation_score,
-            completed_experiments=experiment.operator.completed_experiments
-        ) if experiment.operator else None,
+            completed_experiments=experiment.operator.completed_experiments,
+        )
+        if experiment.operator
+        else None,
         cost=schemas.CostInfo(
             estimated_usd=experiment.estimated_cost_usd,
             final_usd=experiment.final_cost_usd,
-            payment_status=schemas.PaymentStatus(experiment.payment_status.value)
-        )
+            payment_status=schemas.PaymentStatus(experiment.payment_status.value),
+        ),
     )
 
 
@@ -736,12 +907,10 @@ async def update_experiment(
     experiment_id: str,
     update: schemas.ExperimentUpdate,
     current_user: AuthUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+) -> schemas.Experiment:
     """Update experiment (limited fields based on status)."""
-    result = await db.execute(
-        select(ExperimentModel).where(ExperimentModel.id == experiment_id)
-    )
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
     experiment = result.scalar_one_or_none()
 
     if not experiment:
@@ -752,24 +921,30 @@ async def update_experiment(
 
     # Apply updates based on status
     if update.communication_preferences:
-        if update.communication_preferences.get("webhook_url"):
-            experiment.webhook_url = update.communication_preferences["webhook_url"]
-        if update.communication_preferences.get("notification_events"):
-            experiment.notification_events = update.communication_preferences["notification_events"]
+        webhook_url = _as_str(update.communication_preferences.get("webhook_url"))
+        if webhook_url:
+            experiment.webhook_url = webhook_url
+        notification_events = update.communication_preferences.get("notification_events")
+        if isinstance(notification_events, (dict, list)):
+            experiment.notification_events = notification_events
 
-    if update.constraints and experiment.status in [DBExperimentStatus.DRAFT, DBExperimentStatus.OPEN]:
+    if update.constraints and experiment.status in [
+        DBExperimentStatus.DRAFT,
+        DBExperimentStatus.OPEN,
+    ]:
         spec = experiment.specification.copy()
         if "turnaround_budget" not in spec:
             spec["turnaround_budget"] = {}
-        if update.constraints.get("budget_max_usd"):
-            new_budget = update.constraints["budget_max_usd"]
-            old_budget = spec.get("turnaround_budget", {}).get("budget_max_usd", 0)
+        new_budget = _as_float(update.constraints.get("budget_max_usd"))
+        if new_budget is not None:
+            budget_section = _as_object(spec.get("turnaround_budget"))
+            old_budget = _as_float(budget_section.get("budget_max_usd")) or 0.0
             if experiment.status == DBExperimentStatus.OPEN and new_budget < old_budget:
                 raise HTTPException(
-                    status_code=409,
-                    detail="Cannot decrease budget after experiment is open"
+                    status_code=409, detail="Cannot decrease budget after experiment is open"
                 )
-            spec["turnaround_budget"]["budget_max_usd"] = new_budget
+            budget_section["budget_max_usd"] = new_budget
+            spec["turnaround_budget"] = budget_section
         experiment.specification = spec
 
     experiment.updated_at = datetime.utcnow()
@@ -787,22 +962,22 @@ async def update_experiment(
         cost=schemas.CostInfo(
             estimated_usd=experiment.estimated_cost_usd,
             final_usd=experiment.final_cost_usd,
-            payment_status=schemas.PaymentStatus(experiment.payment_status.value)
-        )
+            payment_status=schemas.PaymentStatus(experiment.payment_status.value),
+        ),
     )
 
 
-@app.delete("/experiments/{experiment_id}", response_model=schemas.CancelResponse, tags=["Experiments"])
+@app.delete(
+    "/experiments/{experiment_id}", response_model=schemas.CancelResponse, tags=["Experiments"]
+)
 async def cancel_experiment(
     experiment_id: str,
     reason: str = Query(..., max_length=500),
     current_user: AuthUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+) -> schemas.CancelResponse:
     """Cancel an experiment."""
-    result = await db.execute(
-        select(ExperimentModel).where(ExperimentModel.id == experiment_id)
-    )
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
     experiment = result.scalar_one_or_none()
 
     if not experiment:
@@ -812,18 +987,25 @@ async def cancel_experiment(
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Check if cancellable
-    non_cancellable = [DBExperimentStatus.IN_PROGRESS, DBExperimentStatus.COMPLETED, DBExperimentStatus.CANCELLED]
+    non_cancellable = [
+        DBExperimentStatus.IN_PROGRESS,
+        DBExperimentStatus.COMPLETED,
+        DBExperimentStatus.CANCELLED,
+    ]
     if experiment.status in non_cancellable:
         raise HTTPException(
-            status_code=409,
-            detail=f"Cannot cancel experiment in {experiment.status.value} status"
+            status_code=409, detail=f"Cannot cancel experiment in {experiment.status.value} status"
         )
 
     # Calculate refund
     refund_amount = 0.0
     refund_status = "none"
 
-    if experiment.status in [DBExperimentStatus.DRAFT, DBExperimentStatus.PENDING_REVIEW, DBExperimentStatus.OPEN]:
+    if experiment.status in [
+        DBExperimentStatus.DRAFT,
+        DBExperimentStatus.PENDING_REVIEW,
+        DBExperimentStatus.OPEN,
+    ]:
         refund_amount = experiment.estimated_cost_usd or 0.0
         refund_status = "processed"
     elif experiment.status == DBExperimentStatus.CLAIMED:
@@ -831,14 +1013,16 @@ async def cancel_experiment(
         refund_status = "processed"
 
     experiment.status = DBExperimentStatus.CANCELLED
-    experiment.payment_status = DBPaymentStatus.REFUNDED if refund_amount > 0 else DBPaymentStatus.PENDING
+    experiment.payment_status = (
+        DBPaymentStatus.REFUNDED if refund_amount > 0 else DBPaymentStatus.PENDING
+    )
     await db.commit()
 
     return schemas.CancelResponse(
         experiment_id=experiment.id,
         status="cancelled",
         refund_amount_usd=refund_amount,
-        refund_status=refund_status
+        refund_status=refund_status,
     )
 
 
@@ -846,16 +1030,19 @@ async def cancel_experiment(
 # Results Endpoints
 # =============================================================================
 
-@app.get("/experiments/{experiment_id}/results", response_model=schemas.ExperimentResults, tags=["Results"])
+
+@app.get(
+    "/experiments/{experiment_id}/results",
+    response_model=schemas.ExperimentResults,
+    tags=["Results"],
+)
 async def get_experiment_results(
     experiment_id: str,
     current_user: AuthUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+) -> schemas.ExperimentResults:
     """Get experiment results."""
-    result = await db.execute(
-        select(ExperimentModel).where(ExperimentModel.id == experiment_id)
-    )
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
     experiment = result.scalar_one_or_none()
 
     if not experiment:
@@ -871,30 +1058,49 @@ async def get_experiment_results(
         raise HTTPException(status_code=404, detail="Results not found")
 
     results = experiment.results
+    structured_data = (
+        schemas.StructuredData.model_validate(results.structured_data)
+        if isinstance(results.structured_data, dict)
+        else None
+    )
+    raw_data_files: list[schemas.RawDataFile] = []
+    raw_files_value = results.raw_data_files if isinstance(results.raw_data_files, list) else []
+    for raw_file in raw_files_value:
+        if isinstance(raw_file, dict):
+            raw_data_files.append(schemas.RawDataFile.model_validate(raw_file))
+
+    documentation = (
+        schemas.Documentation.model_validate(results.documentation)
+        if isinstance(results.documentation, dict)
+        else None
+    )
+
     return schemas.ExperimentResults(
         experiment_id=experiment.id,
         status=schemas.ExperimentStatus(experiment.status.value),
         hypothesis_supported=results.hypothesis_supported,
-        confidence_level=schemas.ConfidenceLevel(results.confidence_level.value) if results.confidence_level else None,
+        confidence_level=schemas.ConfidenceLevel(results.confidence_level.value)
+        if results.confidence_level
+        else None,
         summary=results.summary,
-        structured_data=results.structured_data,
-        raw_data_files=results.raw_data_files or [],
-        documentation=results.documentation,
-        operator_notes=results.notes
+        structured_data=structured_data,
+        raw_data_files=raw_data_files,
+        documentation=documentation,
+        operator_notes=results.notes,
     )
 
 
-@app.post("/experiments/{experiment_id}/approve", response_model=schemas.ApproveResponse, tags=["Results"])
+@app.post(
+    "/experiments/{experiment_id}/approve", response_model=schemas.ApproveResponse, tags=["Results"]
+)
 async def approve_results(
     experiment_id: str,
     request: schemas.ApproveRequest,
     current_user: AuthUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+) -> schemas.ApproveResponse:
     """Approve experiment results and release payment."""
-    result = await db.execute(
-        select(ExperimentModel).where(ExperimentModel.id == experiment_id)
-    )
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
     experiment = result.scalar_one_or_none()
 
     if not experiment:
@@ -925,29 +1131,27 @@ async def approve_results(
             total_ratings = experiment.operator.completed_experiments
             current_avg = experiment.operator.average_rating
             experiment.operator.average_rating = (
-                (current_avg * (total_ratings - 1) + request.rating) / total_ratings
-            )
+                current_avg * (total_ratings - 1) + request.rating
+            ) / total_ratings
 
     await db.commit()
 
     return schemas.ApproveResponse(
-        experiment_id=experiment.id,
-        status="completed",
-        payment_released=True
+        experiment_id=experiment.id, status="completed", payment_released=True
     )
 
 
-@app.post("/experiments/{experiment_id}/dispute", response_model=schemas.DisputeResponse, tags=["Results"])
+@app.post(
+    "/experiments/{experiment_id}/dispute", response_model=schemas.DisputeResponse, tags=["Results"]
+)
 async def dispute_results(
     experiment_id: str,
     request: schemas.DisputeRequest,
     current_user: AuthUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+) -> schemas.DisputeResponse:
     """Open a dispute for experiment results."""
-    result = await db.execute(
-        select(ExperimentModel).where(ExperimentModel.id == experiment_id)
-    )
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
     experiment = result.scalar_one_or_none()
 
     if not experiment:
@@ -964,7 +1168,7 @@ async def dispute_results(
         experiment_id=experiment.id,
         reason=DBDisputeReason(request.reason.value),
         description=request.description,
-        evidence_urls=request.evidence_urls
+        evidence_urls=request.evidence_urls,
     )
     db.add(dispute)
 
@@ -973,9 +1177,7 @@ async def dispute_results(
     await db.refresh(dispute)
 
     return schemas.DisputeResponse(
-        dispute_id=dispute.id,
-        experiment_id=experiment.id,
-        status="disputed"
+        dispute_id=dispute.id, experiment_id=experiment.id, status="disputed"
     )
 
 
@@ -983,61 +1185,64 @@ async def dispute_results(
 # Validation Endpoints
 # =============================================================================
 
+
 @app.post("/validate", response_model=schemas.ValidationResult, tags=["Validation"])
 async def validate_experiment(
-    request: schemas.ExperimentRequest,
-    current_user: AuthUser = Depends(get_current_user)
-):
+    request: schemas.ExperimentRequest, current_user: AuthUser = Depends(get_current_user)
+) -> schemas.ValidationResult:
     """Validate experiment without submitting."""
-    spec = request.model_dump(exclude_none=True)
+    spec_raw = request.model_dump(exclude_none=True)
+    spec: JsonObject = spec_raw if isinstance(spec_raw, dict) else {}
     return validate_intake(spec)
 
 
 @app.post("/validate/hypothesis", response_model=schemas.ValidationResult, tags=["Validation"])
 async def validate_hypothesis(
-    request: schemas.HypothesisSection,
-    current_user: AuthUser = Depends(get_current_user)
-):
+    request: schemas.HypothesisSection, current_user: AuthUser = Depends(get_current_user)
+) -> schemas.ValidationResult:
     """Validate hypothesis structure only."""
-    errors = []
-    warnings = []
+    errors: list[schemas.ValidationError] = []
+    warnings: list[schemas.ValidationError] = []
 
     if not request.statement:
-        errors.append(schemas.ValidationError(
-            path="statement",
-            code="required_field_missing",
-            message="Hypothesis statement is required"
-        ))
+        errors.append(
+            schemas.ValidationError(
+                path="statement",
+                code="required_field_missing",
+                message="Hypothesis statement is required",
+            )
+        )
 
     if not request.null_hypothesis:
-        errors.append(schemas.ValidationError(
-            path="null_hypothesis",
-            code="required_field_missing",
-            message="Null hypothesis is required"
-        ))
+        errors.append(
+            schemas.ValidationError(
+                path="null_hypothesis",
+                code="required_field_missing",
+                message="Null hypothesis is required",
+            )
+        )
 
     if not request.rationale:
-        warnings.append(schemas.ValidationError(
-            path="rationale",
-            code="recommended_field_missing",
-            message="Adding rationale improves clarity"
-        ))
+        warnings.append(
+            schemas.ValidationError(
+                path="rationale",
+                code="recommended_field_missing",
+                message="Adding rationale improves clarity",
+            )
+        )
 
     return schemas.ValidationResult(
-        valid=len(errors) == 0,
-        errors=errors,
-        warnings=warnings,
-        safety_flags=[]
+        valid=len(errors) == 0, errors=errors, warnings=warnings, safety_flags=[]
     )
 
 
 @app.post("/estimate", response_model=schemas.CostEstimate, tags=["Validation"])
 async def get_estimate(
-    request: schemas.ExperimentRequest,
-    current_user: AuthUser = Depends(get_current_user)
-):
+    request: schemas.ExperimentRequest, current_user: AuthUser = Depends(get_current_user)
+) -> schemas.CostEstimate:
     """Get cost and time estimate without creating experiment."""
-    spec = request.model_dump(exclude_none=True)
+    spec_raw = request.model_dump(exclude_none=True)
+    spec: JsonObject = spec_raw if isinstance(spec_raw, dict) else {}
     return estimate_cost(spec)
 
 
@@ -1045,15 +1250,16 @@ async def get_estimate(
 # Templates Endpoints
 # =============================================================================
 
+
 @app.get("/templates", response_model=schemas.TemplateListResponse, tags=["Templates"])
 async def list_templates(
-    category: Optional[str] = None,
-    bsl_level: Optional[str] = None,
-    search: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
-):
+    category: str | None = None,
+    bsl_level: str | None = None,
+    search: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> schemas.TemplateListResponse:
     """List available protocol templates."""
-    query = select(TemplateModel).where(TemplateModel.is_active == True)
+    query = select(TemplateModel).where(TemplateModel.is_active.is_(True))
 
     if category:
         query = query.where(TemplateModel.category == category)
@@ -1061,8 +1267,7 @@ async def list_templates(
         query = query.where(TemplateModel.bsl_level == bsl_level)
     if search:
         query = query.where(
-            TemplateModel.name.ilike(f"%{search}%") |
-            TemplateModel.description.ilike(f"%{search}%")
+            TemplateModel.name.ilike(f"%{search}%") | TemplateModel.description.ilike(f"%{search}%")
         )
 
     result = await db.execute(query)
@@ -1076,7 +1281,9 @@ async def list_templates(
                 description=t.description,
                 category=t.category,
                 bsl_level=t.bsl_level,
-                estimated_cost_range=f"${t.estimated_cost_min}-${t.estimated_cost_max}" if t.estimated_cost_min else None
+                estimated_cost_range=f"${t.estimated_cost_min}-${t.estimated_cost_max}"
+                if t.estimated_cost_min
+                else None,
             )
             for t in templates
         ]
@@ -1084,18 +1291,25 @@ async def list_templates(
 
 
 @app.get("/templates/{template_id}", response_model=schemas.Template, tags=["Templates"])
-async def get_template(
-    template_id: str,
-    db: AsyncSession = Depends(get_db)
-):
+async def get_template(template_id: str, db: AsyncSession = Depends(get_db)) -> schemas.Template:
     """Get template details."""
-    result = await db.execute(
-        select(TemplateModel).where(TemplateModel.id == template_id)
-    )
+    result = await db.execute(select(TemplateModel).where(TemplateModel.id == template_id))
     template = result.scalar_one_or_none()
 
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
+
+    parameters: list[schemas.TemplateParameter] = []
+    if isinstance(template.parameters, list):
+        for param in template.parameters:
+            if isinstance(param, dict):
+                parameters.append(schemas.TemplateParameter.model_validate(param))
+
+    estimated_cost_usd = (
+        {"min": template.estimated_cost_min, "max": template.estimated_cost_max}
+        if template.estimated_cost_min is not None and template.estimated_cost_max is not None
+        else None
+    )
 
     return schemas.Template(
         id=template.id,
@@ -1104,12 +1318,12 @@ async def get_template(
         category=template.category,
         bsl_level=template.bsl_level,
         version=template.version,
-        parameters=template.parameters or [],
+        parameters=parameters,
         equipment_required=template.equipment_required or [],
         typical_materials=template.typical_materials or [],
         estimated_duration_hours=template.estimated_duration_hours,
-        estimated_cost_usd={"min": template.estimated_cost_min, "max": template.estimated_cost_max},
-        protocol_steps=template.protocol_steps or []
+        estimated_cost_usd=estimated_cost_usd,
+        protocol_steps=template.protocol_steps or [],
     )
 
 
@@ -1117,14 +1331,15 @@ async def get_template(
 # Operator Endpoints
 # =============================================================================
 
+
 @app.get("/operator/jobs", response_model=schemas.JobListResponse, tags=["Operators"])
 async def list_available_jobs(
-    category: Optional[str] = None,
-    min_budget: Optional[float] = None,
-    max_budget: Optional[float] = None,
+    category: str | None = None,
+    min_budget: float | None = None,
+    max_budget: float | None = None,
     current_user: AuthUser = Depends(get_current_operator),
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+) -> schemas.JobListResponse:
     """List available jobs for operators."""
     query = select(ExperimentModel).where(ExperimentModel.status == DBExperimentStatus.OPEN)
 
@@ -1140,38 +1355,42 @@ async def list_available_jobs(
         jobs=[
             schemas.JobListItem(
                 experiment_id=e.id,
-                title=f"{e.experiment_type} Experiment",
-                category=e.experiment_type,
+                title=f"{_as_str(e.experiment_type) or 'Experiment'} Experiment",
+                category=_as_str(e.experiment_type) or "CUSTOM",
                 budget_usd=e.estimated_cost_usd or 0,
                 deadline=None,  # TODO: Calculate from turnaround
-                bsl_level=e.specification.get("compliance", {}).get("bsl", "BSL1"),
-                equipment_required=e.specification.get("custom_protocol", {}).get("equipment_required", []),
-                posted_at=e.created_at
+                bsl_level=_as_str(_as_object(e.specification.get("compliance")).get("bsl"))
+                or "BSL1",
+                equipment_required=_as_str_list(
+                    _as_object(e.specification.get("custom_protocol")).get("equipment_required")
+                ),
+                posted_at=e.created_at,
             )
             for e in experiments
         ]
     )
 
 
-@app.post("/operator/jobs/{experiment_id}/claim", response_model=schemas.ClaimResponse, tags=["Operators"])
+@app.post(
+    "/operator/jobs/{experiment_id}/claim", response_model=schemas.ClaimResponse, tags=["Operators"]
+)
 async def claim_job(
     experiment_id: str,
     request: schemas.ClaimRequest,
     current_user: AuthUser = Depends(get_current_operator),
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+) -> schemas.ClaimResponse:
     """Claim an experiment for execution."""
     if not request.equipment_confirmation or not request.authorization_confirmation:
         raise HTTPException(
-            status_code=400,
-            detail="Must confirm equipment access and authorization"
+            status_code=400, detail="Must confirm equipment access and authorization"
         )
 
     # Get operator profile
-    result = await db.execute(
+    op_result = await db.execute(
         select(OperatorProfile).where(OperatorProfile.user_id == current_user.id)
     )
-    operator = result.scalar_one_or_none()
+    operator: OperatorProfile | None = op_result.scalar_one_or_none()
 
     if not operator:
         raise HTTPException(status_code=403, detail="Operator profile not found")
@@ -1180,10 +1399,10 @@ async def claim_job(
         raise HTTPException(status_code=403, detail="Operator not verified")
 
     # Get experiment
-    result = await db.execute(
+    exp_result = await db.execute(
         select(ExperimentModel).where(ExperimentModel.id == experiment_id)
     )
-    experiment = result.scalar_one_or_none()
+    experiment: ExperimentModel | None = exp_result.scalar_one_or_none()
 
     if not experiment:
         raise HTTPException(status_code=404, detail="Experiment not found")
@@ -1206,34 +1425,36 @@ async def claim_job(
     deadline = experiment.claimed_at + timedelta(days=14)
 
     return schemas.ClaimResponse(
-        experiment_id=experiment.id,
-        claimed_at=experiment.claimed_at,
-        deadline=deadline
+        experiment_id=experiment.id, claimed_at=experiment.claimed_at, deadline=deadline
     )
 
 
-@app.post("/operator/jobs/{experiment_id}/submit", response_model=schemas.SubmitResultsResponse, tags=["Operators"])
+@app.post(
+    "/operator/jobs/{experiment_id}/submit",
+    response_model=schemas.SubmitResultsResponse,
+    tags=["Operators"],
+)
 async def submit_results(
     experiment_id: str,
     request: schemas.ResultSubmission,
     current_user: AuthUser = Depends(get_current_operator),
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+) -> schemas.SubmitResultsResponse:
     """Submit experiment results."""
     # Get operator profile
-    result = await db.execute(
+    op_result = await db.execute(
         select(OperatorProfile).where(OperatorProfile.user_id == current_user.id)
     )
-    operator = result.scalar_one_or_none()
+    operator: OperatorProfile | None = op_result.scalar_one_or_none()
 
     if not operator:
         raise HTTPException(status_code=403, detail="Operator profile not found")
 
     # Get experiment
-    result = await db.execute(
+    exp_result = await db.execute(
         select(ExperimentModel).where(ExperimentModel.id == experiment_id)
     )
-    experiment = result.scalar_one_or_none()
+    experiment: ExperimentModel | None = exp_result.scalar_one_or_none()
 
     if not experiment:
         raise HTTPException(status_code=404, detail="Experiment not found")
@@ -1245,30 +1466,32 @@ async def submit_results(
         raise HTTPException(status_code=409, detail="Cannot submit results for this experiment")
 
     # Create results
-    exp_result = ExperimentResult(
+    result_record = ExperimentResult(
         experiment_id=experiment.id,
         hypothesis_supported=request.hypothesis_supported,
-        confidence_level=DBConfidenceLevel(request.confidence_level.value) if request.confidence_level else None,
+        confidence_level=DBConfidenceLevel(request.confidence_level.value)
+        if request.confidence_level
+        else None,
         summary=request.summary,
         structured_data={
             "measurements": [m.model_dump() for m in request.measurements],
-            "statistics": request.statistics.model_dump() if request.statistics else None
+            "statistics": request.statistics.model_dump() if request.statistics else None,
         },
         documentation=request.documentation.model_dump() if request.documentation else None,
-        notes=request.notes
+        notes=request.notes,
     )
-    db.add(exp_result)
+    db.add(result_record)
 
     experiment.status = DBExperimentStatus.COMPLETED
     experiment.completed_at = datetime.utcnow()
 
     await db.commit()
-    await db.refresh(exp_result)
+    await db.refresh(result_record)
 
     return schemas.SubmitResultsResponse(
         experiment_id=experiment.id,
         status="pending_approval",
-        submitted_at=exp_result.submitted_at
+        submitted_at=result_record.submitted_at,
     )
 
 
@@ -1276,69 +1499,37 @@ async def submit_results(
 # Webhook Endpoints
 # =============================================================================
 
+
 @app.post("/webhooks/test", response_model=schemas.WebhookTestResponse, tags=["Webhooks"])
 async def test_webhook(
-    request: schemas.WebhookTestRequest,
-    current_user: AuthUser = Depends(get_current_user)
-):
+    request: schemas.WebhookTestRequest, current_user: AuthUser = Depends(get_current_user)
+) -> schemas.WebhookTestResponse:
     """Send test webhook to verify endpoint configuration."""
     payload = {
         "event": f"experiment.{request.event_type}",
         "experiment_id": "test_" + generate_uuid()[:8],
         "timestamp": datetime.utcnow().isoformat(),
-        "data": {
-            "test": True,
-            "message": "This is a test webhook from Litmus Science"
-        }
+        "data": {"test": True, "message": "This is a test webhook from Litmus Science"},
     }
 
     try:
         start_time = datetime.utcnow()
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                request.url,
-                json=payload,
-                timeout=10.0
-            )
+            response = await client.post(request.url, json=payload, timeout=10.0)
         elapsed = (datetime.utcnow() - start_time).total_seconds() * 1000
 
         return schemas.WebhookTestResponse(
             success=200 <= response.status_code < 300,
             response_code=response.status_code,
-            response_time_ms=int(elapsed)
+            response_time_ms=int(elapsed),
         )
-    except Exception as e:
-        return schemas.WebhookTestResponse(
-            success=False,
-            response_code=None,
-            response_time_ms=None
-        )
+    except Exception:
+        return schemas.WebhookTestResponse(success=False, response_code=None, response_time_ms=None)
 
 
 # =============================================================================
 # Cloud Lab Endpoints
 # =============================================================================
-
-from backend.cloud_labs import (
-    get_translator, get_provider, list_providers as get_providers_list,
-    PROVIDERS, TranslationError
-)
-from backend.cloud_labs.registry import (
-    translate_intake as do_translate_intake,
-    validate_intake_for_provider,
-    get_supported_experiment_types,
-    get_provider_info,
-)
-from backend.cloud_labs.models import (
-    TranslateRequest, TranslateResponse, TranslationResultResponse,
-    ValidateForProviderRequest, ProviderInfoResponse, ProvidersListResponse,
-    SupportedTypesResponse, ValidationIssueResponse,
-    LLMInterpretRequest, LLMInterpretResponse,
-    EdisonTranslateRequest, EdisonTranslateResponse,
-)
-from backend.services.experiment_interpreter import ExperimentInterpreter, get_experiment_interpreter
-from backend.services.edison_integration import EdisonLitmusIntegration, get_edison_litmus_integration
-from backend.services.edison_client import EdisonJobType as EdisonJobTypeClient
 
 # Map API job type names to Edison client job types
 _EDISON_JOB_TYPE_MAP = {
@@ -1347,46 +1538,93 @@ _EDISON_JOB_TYPE_MAP = {
     "analysis": EdisonJobTypeClient.ANALYSIS,
     "precedent": EdisonJobTypeClient.PRECEDENT,
 }
-from backend.models import CloudLabSubmission
+
+
+async def _parse_edison_request(request: Request) -> tuple[EdisonTranslateRequest, str | None]:
+    content_type = request.headers.get("content-type", "")
+    files: list[UploadFile] = []
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+
+        def _form_str(value: str | UploadFile | StarletteUploadFile | None) -> str | None:
+            return value if isinstance(value, str) else None
+
+        request_data: dict[str, str | None] = {
+            "query": _form_str(form.get("query")),
+            "job_type": _form_str(form.get("job_type")),
+            "context": _form_str(form.get("context")),
+            "provider": _form_str(form.get("provider")),
+        }
+        files = [item for item in form.getlist("files") if isinstance(item, UploadFile)]
+    else:
+        body = await request.json()
+        request_data = body if isinstance(body, dict) else {}
+
+    try:
+        edison_request = EdisonTranslateRequest.model_validate(request_data)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
+
+    additional_context = edison_request.context
+    if files:
+        file_snippets = []
+        for upload in files:
+            filename = upload.filename or "upload"
+            content_type = upload.content_type or "application/octet-stream"
+            if content_type.startswith("text/") or filename.lower().endswith(
+                (".txt", ".md", ".csv", ".tsv", ".json")
+            ):
+                content = await upload.read(50000)
+                text = content.decode("utf-8", errors="replace").strip()
+                if text:
+                    file_snippets.append(f"File: {filename}\n{text}")
+                else:
+                    file_snippets.append(f"File: {filename} (empty text file)")
+            else:
+                file_snippets.append(f"File: {filename} (content type: {content_type})")
+
+        if file_snippets:
+            file_context = "\n\n".join(file_snippets)
+            additional_context = (
+                f"{additional_context}\n\n{file_context}" if additional_context else file_context
+            )
+
+    return edison_request, additional_context
 
 
 @app.get("/cloud-labs/providers", response_model=ProvidersListResponse, tags=["Cloud Labs"])
-async def list_cloud_lab_providers():
+async def list_cloud_lab_providers() -> ProvidersListResponse:
     """List available cloud lab providers and their capabilities."""
     providers = get_providers_list()
     return ProvidersListResponse(
-        providers=[
-            ProviderInfoResponse(**p)
-            for p in providers
-        ]
+        providers=[ProviderInfoResponse.model_validate(p) for p in providers]
     )
 
 
-@app.get("/cloud-labs/providers/{provider_id}", response_model=ProviderInfoResponse, tags=["Cloud Labs"])
-async def get_cloud_lab_provider(provider_id: str):
+@app.get(
+    "/cloud-labs/providers/{provider_id}", response_model=ProviderInfoResponse, tags=["Cloud Labs"]
+)
+async def get_cloud_lab_provider(provider_id: str) -> ProviderInfoResponse:
     """Get detailed information about a specific cloud lab provider."""
     try:
         info = get_provider_info(provider_id)
-        return ProviderInfoResponse(**info)
+        return ProviderInfoResponse.model_validate(info)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
 @app.get("/cloud-labs/supported-types", response_model=SupportedTypesResponse, tags=["Cloud Labs"])
 async def get_supported_types(
-    provider: Optional[str] = Query(None, description="Filter by provider (ecl/strateos)")
-):
+    provider: str | None = Query(None, description="Filter by provider (ecl/strateos)"),
+) -> SupportedTypesResponse:
     """Get experiment types supported by cloud lab providers."""
-    return SupportedTypesResponse(
-        supported_types=get_supported_experiment_types(provider)
-    )
+    return SupportedTypesResponse(supported_types=get_supported_experiment_types(provider))
 
 
 @app.post("/cloud-labs/interpret", response_model=LLMInterpretResponse, tags=["Cloud Labs"])
 async def interpret_experiment(
-    request: LLMInterpretRequest,
-    current_user: AuthUser = Depends(get_current_user)
-):
+    request: LLMInterpretRequest, current_user: AuthUser = Depends(get_current_user)
+) -> LLMInterpretResponse:
     """
     Use LLM to interpret an experiment description and extract structured parameters.
 
@@ -1418,9 +1656,8 @@ async def interpret_experiment(
 
 @app.post("/cloud-labs/edison", response_model=EdisonTranslateResponse, tags=["Cloud Labs"])
 async def translate_edison_query(
-    request: EdisonTranslateRequest,
-    current_user: AuthUser = Depends(get_current_user)
-):
+    request: Request, current_user: AuthUser = Depends(get_current_user)
+) -> EdisonTranslateResponse:
     """
     Use Edison Scientific for hypothesis generation, then translate to cloud lab protocols.
 
@@ -1439,15 +1676,18 @@ async def translate_edison_query(
     Requires LLM_PROVIDER and API key for hypothesis generation.
     """
     integration = get_edison_litmus_integration()
+    edison_request, additional_context = await _parse_edison_request(request)
 
     # Map the request job type to the client's enum
-    job_type = _EDISON_JOB_TYPE_MAP.get(request.job_type.value, EdisonJobTypeClient.MOLECULES)
+    job_type = _EDISON_JOB_TYPE_MAP.get(
+        edison_request.job_type.value, EdisonJobTypeClient.MOLECULES
+    )
 
     # Run the full pipeline: Edison → Hypothesis → Litmus → Cloud Labs
     result = await integration.research_and_translate(
-        query=request.query,
+        query=edison_request.query,
         job_type=job_type,
-        additional_context=request.context,
+        additional_context=additional_context,
         translate_to_cloud_labs=True,
     )
 
@@ -1459,21 +1699,400 @@ async def translate_edison_query(
             error=result.error,
         )
 
+    translations_payload: JsonObject | None = None
+    if result.translations:
+        translations_payload = {}
+        for key, value in result.translations.items():
+            translations_payload[key] = value
+
     return EdisonTranslateResponse(
         success=True,
         experiment_type=result.experiment_type,
         intake=result.intake,
-        translations=result.translations,
+        translations=translations_payload,
         suggestions=result.suggestions,
         warnings=result.warnings,
     )
 
 
+@app.post("/cloud-labs/edison/start", response_model=EdisonRunStartResponse, tags=["Cloud Labs"])
+async def start_edison_run(
+    request: Request,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> EdisonRunStartResponse:
+    """
+    Start an Edison run and return a run_id for resumable polling.
+    """
+    integration = get_edison_litmus_integration()
+    edison_request, additional_context = await _parse_edison_request(request)
+
+    job_type = _EDISON_JOB_TYPE_MAP.get(
+        edison_request.job_type.value, EdisonJobTypeClient.MOLECULES
+    )
+    try:
+        task_id = await integration.edison.create_task(
+            query=edison_request.query,
+            job_type=job_type,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    await db.execute(
+        update(EdisonRunModel)
+        .where(
+            and_(
+                EdisonRunModel.user_id == current_user.id,
+                EdisonRunModel.is_hidden.is_(False),
+                EdisonRunModel.status.in_((DBEdisonRunStatus.PENDING, DBEdisonRunStatus.RUNNING)),
+            )
+        )
+        .values(
+            status=DBEdisonRunStatus.FAILED,
+            error="Superseded by new run",
+            updated_at=datetime.utcnow(),
+        )
+    )
+
+    intake_id = generate_uuid()
+    run = EdisonRunModel(
+        user_id=current_user.id,
+        query=edison_request.query,
+        job_type=edison_request.job_type.value,
+        task_id=task_id,
+        status=DBEdisonRunStatus.PENDING,
+        additional_context=additional_context,
+        intake_id=intake_id,
+    )
+    db.add(run)
+    await db.commit()
+
+    return EdisonRunStartResponse(
+        run_id=run.id,
+        status=DBEdisonRunStatus.PENDING,
+        intake_id=intake_id,
+    )
+
+
+@app.get("/cloud-labs/edison/active", response_model=EdisonRunSummary | None, tags=["Cloud Labs"])
+async def get_active_edison_run(
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> EdisonRunSummary | None:
+    """
+    Fetch the most recent active Edison run for the current user.
+    """
+    result = await db.execute(
+        select(EdisonRunModel)
+        .where(
+            and_(
+                EdisonRunModel.user_id == current_user.id,
+                EdisonRunModel.status.in_((DBEdisonRunStatus.PENDING, DBEdisonRunStatus.RUNNING)),
+            )
+        )
+        .order_by(EdisonRunModel.created_at.desc())
+        .limit(1)
+    )
+    run = result.scalar_one_or_none()
+    if run is None:
+        return None
+
+    return EdisonRunSummary(
+        run_id=run.id,
+        status=run.status,
+        query=run.query,
+        job_type=EdisonJobType(run.job_type),
+        started_at=run.created_at,
+        experiment_type=run.experiment_type,
+        draft=_build_edison_run_draft(run),
+    )
+
+
+@app.get("/cloud-labs/edison/runs", response_model=EdisonRunListResponse, tags=["Cloud Labs"])
+async def list_edison_runs(
+    status: DBEdisonRunStatus | None = None,
+    limit: int = Query(20, ge=1, le=100),
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> EdisonRunListResponse:
+    """
+    List Edison runs for the current user.
+    """
+    query = select(EdisonRunModel).where(
+        and_(
+            EdisonRunModel.user_id == current_user.id,
+            EdisonRunModel.is_hidden.is_(False),
+        )
+    )
+    if status is not None:
+        query = query.where(EdisonRunModel.status == status)
+    query = query.order_by(EdisonRunModel.created_at.desc()).limit(limit)
+
+    result = await db.execute(query)
+    runs = result.scalars().all()
+
+    summaries = [
+        EdisonRunSummary(
+            run_id=run.id,
+            status=run.status,
+            query=run.query,
+            job_type=EdisonJobType(run.job_type),
+            started_at=run.created_at,
+            experiment_type=run.experiment_type,
+            draft=_build_edison_run_draft(run),
+        )
+        for run in runs
+    ]
+
+    return EdisonRunListResponse(runs=summaries)
+
+
+@app.patch(
+    "/cloud-labs/edison/runs/{run_id}/draft", response_model=EdisonRunDraft, tags=["Cloud Labs"]
+)
+async def update_edison_run_draft(
+    run_id: str,
+    request: EdisonRunDraftUpdateRequest,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> EdisonRunDraft:
+    """
+    Update draft edits for an Edison run.
+    """
+    result = await db.execute(
+        select(EdisonRunModel).where(
+            and_(
+                EdisonRunModel.id == run_id,
+                EdisonRunModel.user_id == current_user.id,
+            )
+        )
+    )
+    run = result.scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Edison run not found")
+
+    fields_set = request.model_fields_set
+    if "hypothesis" in fields_set:
+        run.edited_hypothesis = request.hypothesis
+    if "null_hypothesis" in fields_set:
+        run.edited_null_hypothesis = request.null_hypothesis
+
+    await db.commit()
+    return _build_edison_run_draft(run) or EdisonRunDraft()
+
+
+@app.post(
+    "/cloud-labs/edison/runs/clear-history",
+    response_model=EdisonClearHistoryResponse,
+    tags=["Cloud Labs"],
+)
+async def clear_edison_history(
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> EdisonClearHistoryResponse:
+    """
+    Hide completed Edison runs from history for the current user.
+    """
+    from sqlalchemy.engine import CursorResult
+
+    result = await db.execute(
+        update(EdisonRunModel)
+        .where(
+            and_(
+                EdisonRunModel.user_id == current_user.id,
+                EdisonRunModel.status == DBEdisonRunStatus.COMPLETED,
+                EdisonRunModel.is_hidden.is_(False),
+            )
+        )
+        .values(is_hidden=True, updated_at=datetime.utcnow())
+    )
+    await db.commit()
+    rowcount = cast(CursorResult[tuple[object, ...]], result).rowcount or 0
+    return EdisonClearHistoryResponse(success=True, cleared=rowcount)
+
+
+def _convert_reasoning_trace(
+    trace: EdisonReasoningTrace | None,
+) -> EdisonReasoningTraceResponse | None:
+    """Convert reasoning trace to API response model."""
+    if trace is None:
+        return None
+    return EdisonReasoningTraceResponse.model_validate(trace.model_dump())
+
+
+def _build_edison_run_draft(run: EdisonRunModel) -> EdisonRunDraft | None:
+    if (
+        run.edited_hypothesis is None
+        and run.edited_null_hypothesis is None
+        and run.intake_id is None
+    ):
+        return None
+    return EdisonRunDraft(
+        hypothesis=run.edited_hypothesis,
+        null_hypothesis=run.edited_null_hypothesis,
+        intake_id=run.intake_id,
+    )
+
+
+@app.get(
+    "/cloud-labs/edison/status/{run_id}",
+    response_model=EdisonRunStatusResponse,
+    tags=["Cloud Labs"],
+)
+async def get_edison_run_status(
+    run_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> EdisonRunStatusResponse:
+    """
+    Get the status of an Edison run and return results when completed.
+
+    Returns reasoning_trace with the agent's execution state including:
+    - current_step: Current execution phase (INITIALIZED, CREATE_PLAN, PAPER_SEARCH, etc.)
+    - steps_completed: List of completed phases
+    - plan: Execution plan with objectives and status
+    - papers: Papers found during search
+    - evidence: Evidence gathered from papers
+    - paper_count, relevant_papers, evidence_count: Running counters
+    """
+    result = await db.execute(
+        select(EdisonRunModel).where(
+            and_(
+                EdisonRunModel.id == run_id,
+                EdisonRunModel.user_id == current_user.id,
+            )
+        )
+    )
+    run = result.scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Edison run not found")
+
+    intake_id_updated = False
+    if run.intake_id is None:
+        run.intake_id = generate_uuid()
+        intake_id_updated = True
+
+    if intake_id_updated and run.status in (DBEdisonRunStatus.COMPLETED, DBEdisonRunStatus.FAILED):
+        await db.commit()
+        intake_id_updated = False
+
+    if run.status == DBEdisonRunStatus.COMPLETED:
+        if run.result is None:
+            run.status = DBEdisonRunStatus.FAILED
+            run.error = "Edison run completed without a result"
+            await db.commit()
+            return EdisonRunStatusResponse(
+                run_id=run.id,
+                status=DBEdisonRunStatus.FAILED,
+                error=run.error,
+                draft=_build_edison_run_draft(run),
+            )
+        return EdisonRunStatusResponse(
+            run_id=run.id,
+            status=DBEdisonRunStatus.COMPLETED,
+            result=(
+                EdisonTranslateResponse.model_validate(run.result)
+                if isinstance(run.result, dict)
+                else EdisonTranslateResponse(
+                    success=False,
+                    experiment_type=run.experiment_type or "CUSTOM",
+                    intake={},
+                    error="Stored result had an invalid format",
+                )
+            ),
+            draft=_build_edison_run_draft(run),
+        )
+
+    if run.status == DBEdisonRunStatus.FAILED:
+        return EdisonRunStatusResponse(
+            run_id=run.id,
+            status=DBEdisonRunStatus.FAILED,
+            error=run.error,
+            draft=_build_edison_run_draft(run),
+        )
+
+    integration = get_edison_litmus_integration()
+    edison_task = await integration.edison.get_task(run.task_id, verbose=True)
+    task_status = edison_task.status.lower()
+    in_progress = task_status in ("in progress", "pending", "queued", "running")
+
+    # Convert reasoning trace for response
+    reasoning_trace = _convert_reasoning_trace(edison_task.reasoning_trace)
+
+    if in_progress:
+        run.status = DBEdisonRunStatus.RUNNING
+        await db.commit()
+        return EdisonRunStatusResponse(
+            run_id=run.id,
+            status=DBEdisonRunStatus.RUNNING,
+            reasoning_trace=reasoning_trace,
+            draft=_build_edison_run_draft(run),
+        )
+
+    edison_insights = edison_task.formatted_answer or edison_task.answer
+    if not edison_insights:
+        run.status = DBEdisonRunStatus.FAILED
+        run.error = "Edison response missing insights"
+        await db.commit()
+        return EdisonRunStatusResponse(
+            run_id=run.id,
+            status=DBEdisonRunStatus.FAILED,
+            error=run.error,
+            reasoning_trace=reasoning_trace,
+            draft=_build_edison_run_draft(run),
+        )
+
+    translated = await integration.translate_from_insights(
+        query=run.query,
+        edison_insights=edison_insights,
+        additional_context=run.additional_context,
+        translate_to_cloud_labs=True,
+    )
+
+    if not translated.success:
+        run.status = DBEdisonRunStatus.FAILED
+        run.error = translated.error or "Failed to translate Edison insights"
+        await db.commit()
+        return EdisonRunStatusResponse(
+            run_id=run.id,
+            status=DBEdisonRunStatus.FAILED,
+            error=run.error,
+            reasoning_trace=reasoning_trace,
+            draft=_build_edison_run_draft(run),
+        )
+
+    translated_payload: JsonObject | None = None
+    if translated.translations:
+        translated_payload = {}
+        for key, value in translated.translations.items():
+            translated_payload[key] = value
+
+    response_payload = EdisonTranslateResponse(
+        success=True,
+        experiment_type=translated.experiment_type,
+        intake=translated.intake,
+        translations=translated_payload,
+        suggestions=translated.suggestions,
+        warnings=translated.warnings,
+    )
+    run.status = DBEdisonRunStatus.COMPLETED
+    run.experiment_type = translated.experiment_type
+    run.result = response_payload.model_dump()
+    await db.commit()
+
+    return EdisonRunStatusResponse(
+        run_id=run.id,
+        status=DBEdisonRunStatus.COMPLETED,
+        result=response_payload,
+        reasoning_trace=reasoning_trace,
+        draft=_build_edison_run_draft(run),
+    )
+
+
 @app.post("/cloud-labs/translate", response_model=TranslateResponse, tags=["Cloud Labs"])
 async def translate_to_cloud_lab(
-    request: TranslateRequest,
-    current_user: AuthUser = Depends(get_current_user)
-):
+    request: TranslateRequest, current_user: AuthUser = Depends(get_current_user)
+) -> TranslateResponse:
     """
     Translate a Litmus experiment intake to cloud lab protocol format.
 
@@ -1493,10 +2112,10 @@ async def translate_to_cloud_lab(
     if request.use_llm:
         interpreter = get_experiment_interpreter()
         interpretation = await interpreter.interpret(
-            experiment_type=intake.get("experiment_type", "CUSTOM"),
-            title=intake.get("title", "Untitled"),
-            hypothesis=intake.get("hypothesis", {}).get("statement", ""),
-            notes=intake.get("notes"),
+            experiment_type=_as_str(intake.get("experiment_type"), "CUSTOM") or "CUSTOM",
+            title=_as_str(intake.get("title"), "Untitled") or "Untitled",
+            hypothesis=_as_str(_as_object(intake.get("hypothesis")).get("statement"), "") or "",
+            notes=_as_str(intake.get("notes")),
             existing_intake=intake,
         )
         if interpretation.success:
@@ -1508,7 +2127,7 @@ async def translate_to_cloud_lab(
                 detail={
                     "code": "llm_interpretation_failed",
                     "message": interpretation.error or "LLM interpretation failed",
-                }
+                },
             )
 
     try:
@@ -1522,38 +2141,52 @@ async def translate_to_cloud_lab(
                 protocol=result.protocol,
                 protocol_readable=result.protocol_readable,
                 success=result.success,
-                errors=[ValidationIssueResponse(
-                    path=e.path, code=e.code, message=e.message,
-                    severity=e.severity, suggestion=e.suggestion
-                ) for e in result.errors],
-                warnings=[ValidationIssueResponse(
-                    path=w.path, code=w.code, message=w.message,
-                    severity=w.severity, suggestion=w.suggestion
-                ) for w in result.warnings],
-                metadata=result.metadata
+                errors=[
+                    ValidationIssueResponse(
+                        path=e.path,
+                        code=e.code,
+                        message=e.message,
+                        severity=e.severity,
+                        suggestion=e.suggestion,
+                    )
+                    for e in result.errors
+                ],
+                warnings=[
+                    ValidationIssueResponse(
+                        path=w.path,
+                        code=w.code,
+                        message=w.message,
+                        severity=w.severity,
+                        suggestion=w.suggestion,
+                    )
+                    for w in result.warnings
+                ],
+                metadata=result.metadata,
             )
 
         return TranslateResponse(
             translations=translations,
-            experiment_type=intake.get("experiment_type", "unknown"),
-            title=intake.get("title")
+            experiment_type=_as_str(intake.get("experiment_type"), "unknown") or "unknown",
+            title=_as_str(intake.get("title")),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except TranslationError as e:
-        raise HTTPException(status_code=422, detail={
-            "code": "translation_error",
-            "message": str(e),
-            "field_path": e.field_path,
-            "suggestion": e.suggestion
-        })
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "translation_error",
+                "message": str(e),
+                "field_path": e.field_path,
+                "suggestion": e.suggestion,
+            },
+        )
 
 
 @app.post("/cloud-labs/validate", tags=["Cloud Labs"])
 async def validate_for_cloud_lab(
-    request: ValidateForProviderRequest,
-    current_user: AuthUser = Depends(get_current_user)
-):
+    request: ValidateForProviderRequest, current_user: AuthUser = Depends(get_current_user)
+) -> JsonObject:
     """
     Validate an intake specification for a specific cloud lab provider.
 
@@ -1565,17 +2198,34 @@ async def validate_for_cloud_lab(
         errors = [i for i in issues if i.severity == "error"]
         warnings = [i for i in issues if i.severity == "warning"]
 
+        errors_payload: list[JsonObject] = [
+            ValidationIssueResponse(
+                path=e.path,
+                code=e.code,
+                message=e.message,
+                severity=e.severity,
+                suggestion=e.suggestion,
+            ).model_dump()
+            for e in errors
+        ]
+        warnings_payload: list[JsonObject] = [
+            ValidationIssueResponse(
+                path=w.path,
+                code=w.code,
+                message=w.message,
+                severity=w.severity,
+                suggestion=w.suggestion,
+            ).model_dump()
+            for w in warnings
+        ]
+
+        errors_list: list[JsonValue] = list(errors_payload)
+        warnings_list: list[JsonValue] = list(warnings_payload)
         return {
             "valid": len(errors) == 0,
             "provider": request.provider,
-            "errors": [ValidationIssueResponse(
-                path=e.path, code=e.code, message=e.message,
-                severity=e.severity, suggestion=e.suggestion
-            ) for e in errors],
-            "warnings": [ValidationIssueResponse(
-                path=w.path, code=w.code, message=w.message,
-                severity=w.severity, suggestion=w.suggestion
-            ) for w in warnings]
+            "errors": errors_list,
+            "warnings": warnings_list,
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1587,8 +2237,8 @@ async def translate_experiment(
     provider: str = Query(..., description="Target provider (ecl/strateos)"),
     save: bool = Query(False, description="Save translation to database"),
     current_user: AuthUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+) -> JsonObject:
     """
     Translate an existing experiment to cloud lab format.
 
@@ -1596,9 +2246,7 @@ async def translate_experiment(
     specified cloud lab's protocol format.
     """
     # Get the experiment
-    result = await db.execute(
-        select(ExperimentModel).where(ExperimentModel.id == experiment_id)
-    )
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
     experiment = result.scalar_one_or_none()
 
     if not experiment:
@@ -1619,7 +2267,7 @@ async def translate_experiment(
                 provider=provider,
                 translated_protocol=translation_result.protocol,
                 protocol_format=translation_result.format,
-                status="pending"
+                status="pending",
             )
             db.add(submission)
             await db.commit()
@@ -1634,13 +2282,19 @@ async def translate_experiment(
                     protocol_readable=translation_result.protocol_readable,
                     success=translation_result.success,
                     errors=[],
-                    warnings=[ValidationIssueResponse(
-                        path=w.path, code=w.code, message=w.message,
-                        severity=w.severity, suggestion=w.suggestion
-                    ) for w in translation_result.warnings],
-                    metadata=translation_result.metadata
-                ),
-                "saved": True
+                    warnings=[
+                        ValidationIssueResponse(
+                            path=w.path,
+                            code=w.code,
+                            message=w.message,
+                            severity=w.severity,
+                            suggestion=w.suggestion,
+                        )
+                        for w in translation_result.warnings
+                    ],
+                    metadata=translation_result.metadata,
+                ).model_dump(),
+                "saved": True,
             }
 
         return {
@@ -1650,17 +2304,29 @@ async def translate_experiment(
                 protocol=translation_result.protocol,
                 protocol_readable=translation_result.protocol_readable,
                 success=translation_result.success,
-                errors=[ValidationIssueResponse(
-                    path=e.path, code=e.code, message=e.message,
-                    severity=e.severity, suggestion=e.suggestion
-                ) for e in translation_result.errors],
-                warnings=[ValidationIssueResponse(
-                    path=w.path, code=w.code, message=w.message,
-                    severity=w.severity, suggestion=w.suggestion
-                ) for w in translation_result.warnings],
-                metadata=translation_result.metadata
-            ),
-            "saved": False
+                errors=[
+                    ValidationIssueResponse(
+                        path=e.path,
+                        code=e.code,
+                        message=e.message,
+                        severity=e.severity,
+                        suggestion=e.suggestion,
+                    )
+                    for e in translation_result.errors
+                ],
+                warnings=[
+                    ValidationIssueResponse(
+                        path=w.path,
+                        code=w.code,
+                        message=w.message,
+                        severity=w.severity,
+                        suggestion=w.suggestion,
+                    )
+                    for w in translation_result.warnings
+                ],
+                metadata=translation_result.metadata,
+            ).model_dump(),
+            "saved": False,
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1668,21 +2334,17 @@ async def translate_experiment(
 
 @app.get("/cloud-labs/submissions", tags=["Cloud Labs"])
 async def list_cloud_lab_submissions(
-    experiment_id: Optional[str] = None,
-    provider: Optional[str] = None,
-    status: Optional[str] = None,
+    experiment_id: str | None = None,
+    provider: str | None = None,
+    status: str | None = None,
     current_user: AuthUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+) -> JsonObject:
     """List cloud lab submissions for the current user's experiments."""
     # Get user's experiment IDs
-    exp_query = select(ExperimentModel.id).where(
-        ExperimentModel.requester_id == current_user.id
-    )
+    exp_query = select(ExperimentModel.id).where(ExperimentModel.requester_id == current_user.id)
 
-    query = select(CloudLabSubmission).where(
-        CloudLabSubmission.experiment_id.in_(exp_query)
-    )
+    query = select(CloudLabSubmission).where(CloudLabSubmission.experiment_id.in_(exp_query))
 
     if experiment_id:
         query = query.where(CloudLabSubmission.experiment_id == experiment_id)
@@ -1705,9 +2367,9 @@ async def list_cloud_lab_submissions(
                 "protocol_format": s.protocol_format,
                 "status": s.status,
                 "provider_submission_id": s.provider_submission_id,
-                "submitted_at": s.submitted_at,
-                "completed_at": s.completed_at,
-                "created_at": s.created_at,
+                "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
+                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                "created_at": s.created_at.isoformat(),
             }
             for s in submissions
         ]
@@ -1719,8 +2381,8 @@ async def get_cloud_lab_submission(
     submission_id: str,
     include_protocol: bool = Query(False, description="Include full protocol in response"),
     current_user: AuthUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+) -> JsonObject:
     """Get details of a specific cloud lab submission."""
     result = await db.execute(
         select(CloudLabSubmission).where(CloudLabSubmission.id == submission_id)
@@ -1736,20 +2398,22 @@ async def get_cloud_lab_submission(
     )
     experiment = exp_result.scalar_one_or_none()
 
-    if not experiment or (experiment.requester_id != current_user.id and current_user.role != "admin"):
+    if not experiment or (
+        experiment.requester_id != current_user.id and current_user.role != "admin"
+    ):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    response = {
+    response: JsonObject = {
         "id": submission.id,
         "experiment_id": submission.experiment_id,
         "provider": submission.provider,
         "protocol_format": submission.protocol_format,
         "status": submission.status,
         "provider_submission_id": submission.provider_submission_id,
-        "submitted_at": submission.submitted_at,
-        "completed_at": submission.completed_at,
-        "created_at": submission.created_at,
-        "updated_at": submission.updated_at,
+        "submitted_at": submission.submitted_at.isoformat() if submission.submitted_at else None,
+        "completed_at": submission.completed_at.isoformat() if submission.completed_at else None,
+        "created_at": submission.created_at.isoformat(),
+        "updated_at": submission.updated_at.isoformat(),
     }
 
     if include_protocol:
@@ -1759,17 +2423,384 @@ async def get_cloud_lab_submission(
 
 
 # =============================================================================
+# Hypotheses Endpoints
+# =============================================================================
+
+
+@app.post(
+    "/hypotheses",
+    response_model=schemas.HypothesisResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Hypotheses"],
+)
+async def create_hypothesis(
+    request: schemas.HypothesisCreate,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> schemas.HypothesisResponse:
+    """Create a new hypothesis."""
+    hypothesis = HypothesisModel(
+        user_id=current_user.id,
+        title=request.title,
+        statement=request.statement,
+        null_hypothesis=request.null_hypothesis,
+        experiment_type=request.experiment_type,
+        edison_agent=request.edison_agent,
+        edison_query=request.edison_query,
+        edison_response=request.edison_response,
+        intake_draft=request.intake_draft,
+        status=DBHypothesisStatus.DRAFT,
+    )
+    db.add(hypothesis)
+    await db.commit()
+    await db.refresh(hypothesis)
+
+    # Count experiments linked to this hypothesis
+    exp_count_result = await db.execute(
+        select(func.count())
+        .select_from(ExperimentModel)
+        .where(ExperimentModel.hypothesis_id == hypothesis.id)
+    )
+    experiments_count = exp_count_result.scalar_one()
+
+    return schemas.HypothesisResponse(
+        id=hypothesis.id,
+        user_id=hypothesis.user_id,
+        title=hypothesis.title,
+        statement=hypothesis.statement,
+        null_hypothesis=hypothesis.null_hypothesis,
+        experiment_type=hypothesis.experiment_type,
+        status=hypothesis.status,
+        edison_agent=hypothesis.edison_agent,
+        edison_query=hypothesis.edison_query,
+        edison_response=hypothesis.edison_response,
+        intake_draft=hypothesis.intake_draft,
+        experiments_count=experiments_count,
+        created_at=hypothesis.created_at,
+        updated_at=hypothesis.updated_at,
+    )
+
+
+@app.get("/hypotheses", response_model=schemas.HypothesisListResponse, tags=["Hypotheses"])
+async def list_hypotheses(
+    status: DBHypothesisStatus | None = None,
+    experiment_type: str | None = None,
+    limit: int = Query(20, ge=1, le=100),
+    cursor: str | None = None,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> schemas.HypothesisListResponse:
+    """List hypotheses for the authenticated user."""
+    filters = [HypothesisModel.user_id == current_user.id]
+
+    if status:
+        filters.append(HypothesisModel.status == status)
+    else:
+        filters.append(HypothesisModel.status != DBHypothesisStatus.ARCHIVED)
+    if experiment_type:
+        filters.append(HypothesisModel.experiment_type == experiment_type)
+
+    query = select(HypothesisModel).where(*filters)
+
+    if cursor:
+        cursor_row = await db.execute(select(HypothesisModel).where(HypothesisModel.id == cursor))
+        cursor_hyp = cursor_row.scalar_one_or_none()
+        if cursor_hyp:
+            query = query.where(
+                or_(
+                    HypothesisModel.created_at < cursor_hyp.created_at,
+                    and_(
+                        HypothesisModel.created_at == cursor_hyp.created_at,
+                        HypothesisModel.id < cursor_hyp.id,
+                    ),
+                )
+            )
+
+    query = query.order_by(HypothesisModel.created_at.desc(), HypothesisModel.id.desc()).limit(
+        limit + 1
+    )
+
+    result = await db.execute(query)
+    hypotheses = result.scalars().all()
+
+    has_more = len(hypotheses) > limit
+    if has_more:
+        hypotheses = hypotheses[:limit]
+
+    count_result = await db.execute(
+        select(func.count()).select_from(HypothesisModel).where(*filters)
+    )
+    total_count = count_result.scalar_one()
+
+    return schemas.HypothesisListResponse(
+        hypotheses=[
+            schemas.HypothesisListItem(
+                id=h.id,
+                title=h.title,
+                statement=h.statement,
+                experiment_type=h.experiment_type,
+                status=h.status,
+                created_at=h.created_at,
+            )
+            for h in hypotheses
+        ],
+        pagination=schemas.Pagination(
+            total=total_count, cursor=hypotheses[-1].id if has_more else None, has_more=has_more
+        ),
+    )
+
+
+@app.get(
+    "/hypotheses/{hypothesis_id}", response_model=schemas.HypothesisResponse, tags=["Hypotheses"]
+)
+async def get_hypothesis(
+    hypothesis_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> schemas.HypothesisResponse:
+    """Get a specific hypothesis."""
+    result = await db.execute(select(HypothesisModel).where(HypothesisModel.id == hypothesis_id))
+    hypothesis = result.scalar_one_or_none()
+
+    if not hypothesis:
+        raise HTTPException(status_code=404, detail="Hypothesis not found")
+
+    if hypothesis.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Count experiments linked to this hypothesis
+    exp_count_result = await db.execute(
+        select(func.count())
+        .select_from(ExperimentModel)
+        .where(ExperimentModel.hypothesis_id == hypothesis.id)
+    )
+    experiments_count = exp_count_result.scalar_one()
+
+    return schemas.HypothesisResponse(
+        id=hypothesis.id,
+        user_id=hypothesis.user_id,
+        title=hypothesis.title,
+        statement=hypothesis.statement,
+        null_hypothesis=hypothesis.null_hypothesis,
+        experiment_type=hypothesis.experiment_type,
+        status=hypothesis.status,
+        edison_agent=hypothesis.edison_agent,
+        edison_query=hypothesis.edison_query,
+        edison_response=hypothesis.edison_response,
+        intake_draft=hypothesis.intake_draft,
+        experiments_count=experiments_count,
+        created_at=hypothesis.created_at,
+        updated_at=hypothesis.updated_at,
+    )
+
+
+@app.patch(
+    "/hypotheses/{hypothesis_id}", response_model=schemas.HypothesisResponse, tags=["Hypotheses"]
+)
+async def update_hypothesis(
+    hypothesis_id: str,
+    update: schemas.HypothesisUpdate,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> schemas.HypothesisResponse:
+    """Update a hypothesis."""
+    result = await db.execute(select(HypothesisModel).where(HypothesisModel.id == hypothesis_id))
+    hypothesis = result.scalar_one_or_none()
+
+    if not hypothesis:
+        raise HTTPException(status_code=404, detail="Hypothesis not found")
+
+    if hypothesis.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Apply partial updates
+    update_data = update.model_dump(exclude_none=True)
+    if isinstance(update_data, dict):
+        for field, value in update_data.items():
+            setattr(hypothesis, field, value)
+
+    hypothesis.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(hypothesis)
+
+    # Count experiments linked to this hypothesis
+    exp_count_result = await db.execute(
+        select(func.count())
+        .select_from(ExperimentModel)
+        .where(ExperimentModel.hypothesis_id == hypothesis.id)
+    )
+    experiments_count = exp_count_result.scalar_one()
+
+    return schemas.HypothesisResponse(
+        id=hypothesis.id,
+        user_id=hypothesis.user_id,
+        title=hypothesis.title,
+        statement=hypothesis.statement,
+        null_hypothesis=hypothesis.null_hypothesis,
+        experiment_type=hypothesis.experiment_type,
+        status=hypothesis.status,
+        edison_agent=hypothesis.edison_agent,
+        edison_query=hypothesis.edison_query,
+        edison_response=hypothesis.edison_response,
+        intake_draft=hypothesis.intake_draft,
+        experiments_count=experiments_count,
+        created_at=hypothesis.created_at,
+        updated_at=hypothesis.updated_at,
+    )
+
+
+@app.delete("/hypotheses/{hypothesis_id}", tags=["Hypotheses"])
+async def delete_hypothesis(
+    hypothesis_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> JsonObject:
+    """Archive a hypothesis (soft delete)."""
+    result = await db.execute(select(HypothesisModel).where(HypothesisModel.id == hypothesis_id))
+    hypothesis = result.scalar_one_or_none()
+
+    if not hypothesis:
+        raise HTTPException(status_code=404, detail="Hypothesis not found")
+
+    if hypothesis.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    hypothesis.status = DBHypothesisStatus.ARCHIVED
+    hypothesis.updated_at = datetime.utcnow()
+    await db.commit()
+
+    return {"deleted": True}
+
+
+@app.post(
+    "/hypotheses/{hypothesis_id}/to-experiment",
+    response_model=schemas.ExperimentCreatedResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Hypotheses"],
+)
+async def convert_hypothesis_to_experiment(
+    hypothesis_id: str,
+    request: schemas.HypothesisToExperimentRequest,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> schemas.ExperimentCreatedResponse:
+    """Convert a hypothesis to an experiment request."""
+    result = await db.execute(select(HypothesisModel).where(HypothesisModel.id == hypothesis_id))
+    hypothesis = result.scalar_one_or_none()
+
+    if not hypothesis:
+        raise HTTPException(status_code=404, detail="Hypothesis not found")
+
+    if hypothesis.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Build experiment specification from hypothesis and request
+    spec: JsonObject = {}
+
+    # Start with the intake draft if available
+    if hypothesis.intake_draft:
+        spec = hypothesis.intake_draft.copy()
+
+    # Override with request parameters
+    spec["experiment_type"] = hypothesis.experiment_type
+    spec["title"] = request.title_override or hypothesis.title
+    spec["hypothesis"] = {
+        "statement": hypothesis.statement,
+        "null_hypothesis": hypothesis.null_hypothesis,
+    }
+
+    if request.budget_max_usd is not None:
+        if "turnaround_budget" not in spec or not isinstance(spec["turnaround_budget"], dict):
+            spec["turnaround_budget"] = {}
+        budget_section = spec["turnaround_budget"]
+        if isinstance(budget_section, dict):
+            budget_section["budget_max_usd"] = request.budget_max_usd
+
+    if request.bsl_level:
+        if "compliance" not in spec or not isinstance(spec["compliance"], dict):
+            spec["compliance"] = {}
+        compliance_section = spec["compliance"]
+        if isinstance(compliance_section, dict):
+            compliance_section["bsl"] = request.bsl_level.value
+
+    if request.privacy:
+        spec["privacy"] = request.privacy
+
+    # Validate the specification
+    validation = validate_intake(spec)
+    if not validation.valid:
+        if "safety_rejected" in validation.safety_flags:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "safety_rejected",
+                    "message": "Experiment rejected for safety reasons",
+                    "flags": validation.safety_flags,
+                },
+            )
+        primary_error = validation.errors[0] if validation.errors else None
+        message = "Experiment validation failed"
+        if primary_error:
+            message = f"{message}: {primary_error.path} {primary_error.message}"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "validation_failed",
+                "message": message,
+                "validation_errors": [e.model_dump() for e in validation.errors],
+            },
+        )
+
+    # Estimate cost
+    estimate = estimate_cost(spec)
+
+    # Create experiment
+    experiment = ExperimentModel(
+        requester_id=current_user.id,
+        hypothesis_id=hypothesis.id,
+        status=DBExperimentStatus.PENDING_REVIEW,
+        specification=spec,
+        experiment_type=_as_str(spec.get("experiment_type")),
+        estimated_cost_usd=estimate.estimated_cost_usd.typical,
+        webhook_url=_as_str(_as_object(spec.get("requester_info")).get("webhook_url")),
+        payment_status=DBPaymentStatus.PENDING,
+    )
+    db.add(experiment)
+
+    # Update hypothesis status
+    hypothesis.status = DBHypothesisStatus.USED
+    hypothesis.updated_at = datetime.utcnow()
+
+    await db.commit()
+    await db.refresh(experiment)
+
+    return schemas.ExperimentCreatedResponse(
+        experiment_id=experiment.id,
+        status=schemas.ExperimentStatus(experiment.status.value),
+        created_at=experiment.created_at,
+        estimated_cost_usd=experiment.estimated_cost_usd,
+        estimated_turnaround_days=14,
+        links=schemas.ExperimentLinks(
+            self=f"/experiments/{experiment.id}",
+            results=f"/experiments/{experiment.id}/results",
+            cancel=f"/experiments/{experiment.id}",
+        ),
+    )
+
+
+# =============================================================================
 # Health Check
 # =============================================================================
 
+
 @app.get("/health", tags=["System"])
-async def health_check():
+async def health_check() -> JsonObject:
     """Health check endpoint."""
     return {"status": "healthy", "version": "1.0.0"}
 
 
 @app.get("/config", tags=["System"])
-async def get_config():
+async def get_config() -> JsonObject:
     """Get public configuration for frontend."""
     return {
         "auth_disabled": os.environ.get("LITMUS_AUTH_DISABLED", "").lower() in ("1", "true", "yes"),
@@ -1781,15 +2812,12 @@ async def get_config():
 # Main
 # =============================================================================
 
-def main():
+
+def main() -> None:
     """Run the API server."""
     import uvicorn
-    uvicorn.run(
-        "backend.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True
-    )
+
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
 
 
 if __name__ == "__main__":

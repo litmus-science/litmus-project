@@ -1,0 +1,1 @@
+export const MIN_HYPOTHESIS_LENGTH = 10;

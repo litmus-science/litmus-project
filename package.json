@@ -9,12 +9,15 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint router/*.ts",
-    "validate:schemas": "ajv validate -s schemas/experiment_intake.json -d 'examples/intake_*.json'",
-    "validate:examples": "npm run validate:schemas && ajv validate -s schemas/lab_profile.json -d 'examples/lab_profile_*.json'"
+    "validate:schemas": "ajv validate -c ajv-formats -s schemas/experiment_intake.json -d 'examples/intake_*.json'",
+    "validate:examples": "npm run validate:schemas && ajv validate -c ajv-formats -s schemas/lab_profile.json -d 'examples/lab_profile_*.json'"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.54.0",
+    "@typescript-eslint/parser": "^8.54.0",
     "ajv-cli": "^5.0.0",
+    "ajv-formats": "^2.1.1",
     "eslint": "^8.0.0",
     "typescript": "^5.0.0",
     "vitest": "^1.0.0"

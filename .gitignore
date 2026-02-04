@@ -38,6 +38,7 @@ coverage.xml
 # Build artifacts
 *.js.map
 *.d.ts
+.next/
 
 # Environment variables (keep .env.example)
 .env

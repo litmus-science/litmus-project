@@ -5,17 +5,22 @@ Handles authentication and API interactions with Strateos cloud lab.
 Currently stubbed for future integration when API credentials are available.
 """
 
-from datetime import datetime
-from typing import Any
+from backend.types import JsonObject, JsonValue
 
 from ..base import (
     CloudLabProvider,
-    SubmissionResult,
-    StatusResult,
     ResultsData,
-    SubmissionStatus,
+    StatusResult,
     SubmissionError,
+    SubmissionResult,
+    SubmissionStatus,
 )
+
+
+def _as_str(value: JsonValue | None) -> str | None:
+    if isinstance(value, str):
+        return value
+    return None
 
 
 class StrateosProvider(CloudLabProvider):
@@ -28,8 +33,12 @@ class StrateosProvider(CloudLabProvider):
     Currently stubbed - requires API credentials for full functionality.
     """
 
-    def __init__(self, api_key: str | None = None, organization_id: str | None = None,
-                 project_id: str | None = None):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        organization_id: str | None = None,
+        project_id: str | None = None,
+    ):
         self._api_key = api_key
         self._organization_id = organization_id
         self._project_id = project_id
@@ -46,7 +55,7 @@ class StrateosProvider(CloudLabProvider):
     def required_credentials(self) -> list[str]:
         return ["api_key", "organization_id", "project_id"]
 
-    async def authenticate(self, credentials: dict) -> bool:
+    async def authenticate(self, credentials: JsonObject) -> bool:
         """
         Authenticate with Strateos API.
 
@@ -56,9 +65,9 @@ class StrateosProvider(CloudLabProvider):
         Returns:
             True if authentication successful
         """
-        self._api_key = credentials.get("api_key")
-        self._organization_id = credentials.get("organization_id")
-        self._project_id = credentials.get("project_id")
+        self._api_key = _as_str(credentials.get("api_key"))
+        self._organization_id = _as_str(credentials.get("organization_id"))
+        self._project_id = _as_str(credentials.get("project_id"))
 
         if not all([self._api_key, self._organization_id, self._project_id]):
             return False
@@ -76,7 +85,9 @@ class StrateosProvider(CloudLabProvider):
         self._authenticated = True
         return self._authenticated
 
-    async def submit_experiment(self, protocol: Any, metadata: dict | None = None) -> SubmissionResult:
+    async def submit_experiment(
+        self, protocol: JsonValue, metadata: JsonObject | None = None
+    ) -> SubmissionResult:
         """
         Submit an Autoprotocol experiment to Strateos.
 
@@ -89,21 +100,18 @@ class StrateosProvider(CloudLabProvider):
         """
         if not self._authenticated:
             return SubmissionResult(
-                success=False,
-                message="Not authenticated. Call authenticate() first."
+                success=False, message="Not authenticated. Call authenticate() first."
             )
 
         if not self._project_id:
-            return SubmissionResult(
-                success=False,
-                message="Project ID is required for submission."
-            )
+            return SubmissionResult(success=False, message="Project ID is required for submission.")
 
         # TODO: Implement actual API submission when credentials are available
         # Example flow:
         # async with httpx.AsyncClient() as client:
         #     response = await client.post(
-        #         f"{self.base_url}/organizations/{self._organization_id}/projects/{self._project_id}/runs",
+        #         f"{self.base_url}/organizations/{self._organization_id}"
+        #         f"/projects/{self._project_id}/runs",
         #         headers={
         #             "X-API-KEY": self._api_key,
         #             "Content-Type": "application/json"
@@ -126,13 +134,16 @@ class StrateosProvider(CloudLabProvider):
         # Stub response for development
         return SubmissionResult(
             success=False,
-            message="Strateos API integration not yet implemented. Protocol validated and ready for manual submission.",
+            message=(
+                "Strateos API integration not yet implemented. Protocol validated and ready "
+                "for manual submission."
+            ),
             status=SubmissionStatus.PENDING,
             provider_response={
                 "protocol": protocol,
                 "metadata": metadata,
-                "note": "Copy the protocol JSON to Strateos Command Center for execution"
-            }
+                "note": "Copy the protocol JSON to Strateos Command Center for execution",
+            },
         )
 
     async def get_status(self, submission_id: str) -> StatusResult:
@@ -159,7 +170,7 @@ class StrateosProvider(CloudLabProvider):
         return StatusResult(
             submission_id=submission_id,
             status=SubmissionStatus.PENDING,
-            current_step="API integration pending"
+            current_step="API integration pending",
         )
 
     async def get_results(self, submission_id: str) -> ResultsData:
@@ -183,7 +194,7 @@ class StrateosProvider(CloudLabProvider):
         return ResultsData(
             submission_id=submission_id,
             status=SubmissionStatus.PENDING,
-            metadata={"note": "Results retrieval not yet implemented"}
+            metadata={"note": "Results retrieval not yet implemented"},
         )
 
     async def cancel_experiment(self, submission_id: str) -> bool:
@@ -204,7 +215,7 @@ class StrateosProvider(CloudLabProvider):
 
         return False
 
-    def get_available_containers(self) -> list[dict]:
+    def get_available_containers(self) -> list[JsonObject]:
         """Return list of container types available at Strateos."""
         return [
             {"type": "96-pcr", "description": "96-well PCR plate"},
@@ -218,7 +229,7 @@ class StrateosProvider(CloudLabProvider):
             {"type": "micro-2.0", "description": "2.0mL microcentrifuge tube"},
         ]
 
-    def get_storage_conditions(self) -> list[dict]:
+    def get_storage_conditions(self) -> list[JsonObject]:
         """Return available storage conditions."""
         return [
             {"condition": "ambient", "temperature": "20-25°C"},

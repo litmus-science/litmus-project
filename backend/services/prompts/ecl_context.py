@@ -16,21 +16,25 @@ ECL uses SLL (Symbolic Lab Language), built on Wolfram Language (Mathematica) sy
    - Coverage options: SingleEnd, DoubleEnd, Tiled
 
 2. **ExperimentqPCR** - Quantitative PCR
-   - Parameters: samples, Primers, Probes, ReferenceSamples, NumberOfReplicates, ReactionVolume, MasterMix, ReverseTranscription
+   - Parameters: samples, Primers, Probes, ReferenceSamples, NumberOfReplicates,
+     ReactionVolume, MasterMix, ReverseTranscription
    - Primer format: Forward/Reverse sequences or sample references
 
 3. **ExperimentCellViability** - Cell viability assays (IC50)
-   - Parameters: cells, Compounds, Method, ConcentrationRange, IncubationTime, PlateFormat, NumberOfReplicates
+   - Parameters: cells, Compounds, Method, ConcentrationRange, IncubationTime,
+     PlateFormat, NumberOfReplicates
    - Methods: MTT, XTT, Resazurin, CellTiterGlo, CalceinAM
 
 4. **ExperimentEnzymeActivity** - Enzyme inhibition assays
-   - Parameters: enzyme, Substrate, Inhibitors, InhibitorConcentrationRange, Temperature, AssayTime, DetectionWavelength, NumberOfReplicates
+   - Parameters: enzyme, Substrate, Inhibitors, InhibitorConcentrationRange,
+     Temperature, AssayTime, DetectionWavelength, NumberOfReplicates
 
 5. **ExperimentGrowthCurve** - Microbial growth curves
    - Parameters: samples, Media, Temperature, Duration, ReadInterval, Shaking, ShakingRate
 
 6. **ExperimentAntibioticSusceptibility** - MIC/MBC determination
-   - Parameters: organisms, Antibiotics, Method, DilutionFactor, NumberOfDilutions, IncubationTime, Temperature
+   - Parameters: organisms, Antibiotics, Method, DilutionFactor, NumberOfDilutions,
+     IncubationTime, Temperature
    - Methods: BrothMicrodilution, AgarDilution, DiskDiffusion, Etest
 
 7. **ExperimentDiskDiffusion** - Zone of inhibition assays

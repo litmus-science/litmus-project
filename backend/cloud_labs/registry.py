@@ -4,21 +4,22 @@ Cloud Lab Provider Registry.
 Manages registration and lookup of cloud lab translators and providers.
 """
 
-from typing import Any
+from backend.types import JsonObject, JsonValue
 
-from .base import CloudLabTranslator, CloudLabProvider, TranslationResult, ValidationIssue
-from .ecl import ECLTranslator, ECLProvider
-from .strateos import StrateosTranslator, StrateosProvider
-
+from .base import CloudLabProvider, CloudLabTranslator, TranslationResult, ValidationIssue
+from .ecl import ECLProvider, ECLTranslator
+from .strateos import StrateosProvider, StrateosTranslator
 
 # Provider information registry
-PROVIDERS = {
+PROVIDERS: dict[str, JsonObject] = {
     "ecl": {
         "name": "Emerald Cloud Lab",
         "short_name": "ECL",
         "protocol_format": "sll",
         "protocol_format_name": "Symbolic Lab Language (SLL)",
-        "description": "Automated cloud lab using Wolfram Language-based SLL for experiment specification",
+        "description": (
+            "Automated cloud lab using Wolfram Language-based SLL for experiment specification"
+        ),
         "website": "https://www.emeraldcloudlab.com",
         "documentation": "https://www.emeraldcloudlab.com/documentation/",
         "capabilities": [
@@ -95,7 +96,13 @@ def get_translator(provider_name: str) -> CloudLabTranslator:
     return _translators[provider_name]
 
 
-def get_provider(provider_name: str, credentials: dict | None = None) -> CloudLabProvider:
+def _as_str(value: JsonValue | None) -> str | None:
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def get_provider(provider_name: str, credentials: JsonObject | None = None) -> CloudLabProvider:
     """
     Get a provider (API client) instance for the specified provider.
 
@@ -115,17 +122,19 @@ def get_provider(provider_name: str, credentials: dict | None = None) -> CloudLa
         raise ValueError(f"Unknown provider: {provider_name}. Supported: {list(PROVIDERS.keys())}")
 
     # Create new provider instance with credentials if provided
+    creds = credentials or {}
+    provider: CloudLabProvider
     if provider_name == "ecl":
         provider = ECLProvider(
-            client_id=credentials.get("client_id") if credentials else None,
-            client_secret=credentials.get("client_secret") if credentials else None,
-            organization_id=credentials.get("organization_id") if credentials else None,
+            client_id=_as_str(creds.get("client_id")),
+            client_secret=_as_str(creds.get("client_secret")),
+            organization_id=_as_str(creds.get("organization_id")),
         )
     elif provider_name == "strateos":
         provider = StrateosProvider(
-            api_key=credentials.get("api_key") if credentials else None,
-            organization_id=credentials.get("organization_id") if credentials else None,
-            project_id=credentials.get("project_id") if credentials else None,
+            api_key=_as_str(creds.get("api_key")),
+            organization_id=_as_str(creds.get("organization_id")),
+            project_id=_as_str(creds.get("project_id")),
         )
     else:
         raise ValueError(f"No provider implementation for: {provider_name}")
@@ -133,7 +142,7 @@ def get_provider(provider_name: str, credentials: dict | None = None) -> CloudLa
     return provider
 
 
-def list_providers() -> list[dict]:
+def list_providers() -> list[JsonObject]:
     """
     List all available cloud lab providers with their capabilities.
 
@@ -141,15 +150,11 @@ def list_providers() -> list[dict]:
         List of provider info dicts
     """
     return [
-        {
-            "id": provider_id,
-            **provider_info
-        }
-        for provider_id, provider_info in PROVIDERS.items()
+        {"id": provider_id, **provider_info} for provider_id, provider_info in PROVIDERS.items()
     ]
 
 
-def get_provider_info(provider_name: str) -> dict:
+def get_provider_info(provider_name: str) -> JsonObject:
     """
     Get detailed information about a specific provider.
 
@@ -168,7 +173,9 @@ def get_provider_info(provider_name: str) -> dict:
     return {"id": provider_name, **PROVIDERS[provider_name]}
 
 
-def translate_intake(intake: dict, provider_name: str | None = None) -> dict[str, TranslationResult]:
+def translate_intake(
+    intake: JsonObject, provider_name: str | None = None
+) -> dict[str, TranslationResult]:
     """
     Translate an intake specification to one or all cloud lab formats.
 
@@ -179,7 +186,7 @@ def translate_intake(intake: dict, provider_name: str | None = None) -> dict[str
     Returns:
         Dict mapping provider names to TranslationResult objects
     """
-    results = {}
+    results: dict[str, TranslationResult] = {}
 
     if provider_name:
         # Translate for specific provider
@@ -195,7 +202,7 @@ def translate_intake(intake: dict, provider_name: str | None = None) -> dict[str
     return results
 
 
-def validate_intake_for_provider(intake: dict, provider_name: str) -> list[ValidationIssue]:
+def validate_intake_for_provider(intake: JsonObject, provider_name: str) -> list[ValidationIssue]:
     """
     Validate an intake specification for a specific provider.
 
@@ -225,6 +232,5 @@ def get_supported_experiment_types(provider_name: str | None = None) -> dict[str
         return {provider_name: translator.supported_experiment_types()}
 
     return {
-        prov_name: get_translator(prov_name).supported_experiment_types()
-        for prov_name in PROVIDERS
+        prov_name: get_translator(prov_name).supported_experiment_types() for prov_name in PROVIDERS
     }

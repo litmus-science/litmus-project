@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Navbar } from "@/components/Navbar";
+import { AuthBootstrap } from "@/components/AuthBootstrap";
 
 export const metadata: Metadata = {
   title: "Litmus",
@@ -18,6 +19,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
+        <AuthBootstrap />
         <Navbar />
         <main className="min-h-screen">{children}</main>
       </body>

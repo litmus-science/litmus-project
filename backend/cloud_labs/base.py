@@ -6,16 +6,19 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+
+from backend.types import JsonObject, JsonValue
 
 
 class CloudLabError(Exception):
     """Base exception for cloud lab operations."""
+
     pass
 
 
 class TranslationError(CloudLabError):
     """Error during protocol translation."""
+
     def __init__(self, message: str, field_path: str | None = None, suggestion: str | None = None):
         super().__init__(message)
         self.field_path = field_path
@@ -24,11 +27,13 @@ class TranslationError(CloudLabError):
 
 class SubmissionError(CloudLabError):
     """Error during experiment submission."""
+
     pass
 
 
 class SubmissionStatus(str, Enum):
     """Status of a cloud lab submission."""
+
     PENDING = "pending"
     SUBMITTED = "submitted"
     QUEUED = "queued"
@@ -41,6 +46,7 @@ class SubmissionStatus(str, Enum):
 @dataclass
 class ValidationIssue:
     """A validation warning or error."""
+
     path: str
     code: str
     message: str
@@ -51,24 +57,31 @@ class ValidationIssue:
 @dataclass
 class TranslationResult:
     """Result of translating a Litmus intake to cloud lab format."""
+
     provider: str
     format: str  # "sll" for ECL, "autoprotocol" for Strateos
-    protocol: Any  # The translated protocol (SLL string or Autoprotocol dict)
+    protocol: JsonValue  # The translated protocol (SLL string or Autoprotocol dict)
     protocol_readable: str  # Human-readable version for preview
     success: bool = True
     errors: list[ValidationIssue] = field(default_factory=list)
     warnings: list[ValidationIssue] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: JsonObject = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> JsonObject:
         return {
             "provider": self.provider,
             "format": self.format,
             "protocol": self.protocol,
             "protocol_readable": self.protocol_readable,
             "success": self.success,
-            "errors": [{"path": e.path, "code": e.code, "message": e.message, "suggestion": e.suggestion} for e in self.errors],
-            "warnings": [{"path": w.path, "code": w.code, "message": w.message, "suggestion": w.suggestion} for w in self.warnings],
+            "errors": [
+                {"path": e.path, "code": e.code, "message": e.message, "suggestion": e.suggestion}
+                for e in self.errors
+            ],
+            "warnings": [
+                {"path": w.path, "code": w.code, "message": w.message, "suggestion": w.suggestion}
+                for w in self.warnings
+            ],
             "metadata": self.metadata,
         }
 
@@ -76,18 +89,20 @@ class TranslationResult:
 @dataclass
 class SubmissionResult:
     """Result of submitting an experiment to a cloud lab."""
+
     success: bool
     submission_id: str | None = None
     provider_experiment_id: str | None = None
     status: SubmissionStatus = SubmissionStatus.PENDING
     estimated_completion: datetime | None = None
     message: str | None = None
-    provider_response: dict[str, Any] = field(default_factory=dict)
+    provider_response: JsonObject = field(default_factory=dict)
 
 
 @dataclass
 class StatusResult:
     """Status of a submitted experiment."""
+
     submission_id: str
     status: SubmissionStatus
     progress_percent: float | None = None
@@ -100,12 +115,13 @@ class StatusResult:
 @dataclass
 class ResultsData:
     """Results data from a completed experiment."""
+
     submission_id: str
     status: SubmissionStatus
     completed_at: datetime | None = None
     raw_data_urls: list[str] = field(default_factory=list)
-    processed_data: dict[str, Any] = field(default_factory=dict)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    processed_data: JsonObject = field(default_factory=dict)
+    metadata: JsonObject = field(default_factory=dict)
 
 
 class CloudLabTranslator(ABC):
@@ -134,7 +150,7 @@ class CloudLabTranslator(ABC):
         pass
 
     @abstractmethod
-    def translate(self, intake: dict) -> TranslationResult:
+    def translate(self, intake: JsonObject) -> TranslationResult:
         """
         Translate a Litmus intake specification to the cloud lab protocol format.
 
@@ -147,7 +163,7 @@ class CloudLabTranslator(ABC):
         pass
 
     @abstractmethod
-    def validate_intake(self, intake: dict) -> list[ValidationIssue]:
+    def validate_intake(self, intake: JsonObject) -> list[ValidationIssue]:
         """
         Validate that an intake can be translated for this provider.
 
@@ -159,7 +175,7 @@ class CloudLabTranslator(ABC):
         """
         pass
 
-    def can_translate(self, intake: dict) -> bool:
+    def can_translate(self, intake: JsonObject) -> bool:
         """Check if this translator can handle the given intake."""
         exp_type = intake.get("experiment_type", "")
         return exp_type in self.supported_experiment_types()
@@ -186,7 +202,7 @@ class CloudLabProvider(ABC):
         pass
 
     @abstractmethod
-    async def authenticate(self, credentials: dict) -> bool:
+    async def authenticate(self, credentials: JsonObject) -> bool:
         """
         Authenticate with the cloud lab API.
 
@@ -199,7 +215,9 @@ class CloudLabProvider(ABC):
         pass
 
     @abstractmethod
-    async def submit_experiment(self, protocol: Any, metadata: dict | None = None) -> SubmissionResult:
+    async def submit_experiment(
+        self, protocol: JsonValue, metadata: JsonObject | None = None
+    ) -> SubmissionResult:
         """
         Submit an experiment to the cloud lab.
 

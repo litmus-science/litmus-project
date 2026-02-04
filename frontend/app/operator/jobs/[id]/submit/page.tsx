@@ -36,7 +36,7 @@ interface SubmitForm {
 export default function SubmitResultsPage() {
   const router = useRouter();
   const params = useParams();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, authChecked } = useAuth();
   const [experiment, setExperiment] = useState<Experiment | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -71,6 +71,9 @@ export default function SubmitResultsPage() {
   } = useFieldArray({ control, name: "photos" });
 
   useEffect(() => {
+    if (!authChecked) {
+      return;
+    }
     if (!isAuthenticated()) {
       router.push("/login");
       return;
@@ -81,14 +84,16 @@ export default function SubmitResultsPage() {
         const data = await getExperiment(experimentId);
         setExperiment(data);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load experiment");
+        setError(
+          err instanceof Error ? err.message : "Failed to load experiment",
+        );
       } finally {
         setLoading(false);
       }
     }
 
     fetchExperiment();
-  }, [isAuthenticated, router, experimentId]);
+  }, [authChecked, isAuthenticated, router, experimentId]);
 
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -117,7 +122,7 @@ export default function SubmitResultsPage() {
             step: p.step,
             image_base64: await fileToBase64(p.file![0]),
             caption: p.caption,
-          }))
+          })),
       );
 
       await submitResults(experimentId, {
@@ -164,7 +169,10 @@ export default function SubmitResultsPage() {
     );
   }
 
-  const spec = experiment.specification as { title?: string; [key: string]: unknown };
+  const spec = experiment.specification as {
+    title?: string;
+    [key: string]: unknown;
+  };
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -247,7 +255,9 @@ export default function SubmitResultsPage() {
               className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
             />
             {errors.summary && (
-              <p className="mt-1 text-sm text-red-600">{errors.summary.message}</p>
+              <p className="mt-1 text-sm text-red-600">
+                {errors.summary.message}
+              </p>
             )}
           </div>
 
@@ -260,7 +270,12 @@ export default function SubmitResultsPage() {
               <button
                 type="button"
                 onClick={() =>
-                  appendMeasurement({ metric: "", value: 0, unit: "", condition: "" })
+                  appendMeasurement({
+                    metric: "",
+                    value: 0,
+                    unit: "",
+                    condition: "",
+                  })
                 }
                 className="text-sm text-indigo-600 hover:text-indigo-500"
               >
@@ -276,7 +291,9 @@ export default function SubmitResultsPage() {
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm"
                   />
                   <input
-                    {...register(`measurements.${index}.value`, { valueAsNumber: true })}
+                    {...register(`measurements.${index}.value`, {
+                      valueAsNumber: true,
+                    })}
                     type="number"
                     step="any"
                     placeholder="Value"
@@ -354,7 +371,9 @@ export default function SubmitResultsPage() {
               {photoFields.map((field, index) => (
                 <div key={field.id} className="flex gap-2 items-start">
                   <input
-                    {...register(`photos.${index}.step`, { valueAsNumber: true })}
+                    {...register(`photos.${index}.step`, {
+                      valueAsNumber: true,
+                    })}
                     type="number"
                     min="1"
                     placeholder="Step #"
