@@ -203,6 +203,12 @@ export default function ExperimentDetailPage() {
 
         {/* Actions */}
         <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+          <Link
+            href={`/experiments/${experimentId}/lab-packet`}
+            className="btn-primary text-xs"
+          >
+            Lab Packet
+          </Link>
           {experiment.status === "completed" && (
             <Link
               href={`/experiments/${experimentId}/results`}

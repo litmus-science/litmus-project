@@ -282,6 +282,9 @@ class Experiment(Base):
         "ExperimentResult", back_populates="experiment", uselist=False
     )
     disputes: Mapped[list[Dispute]] = relationship("Dispute", back_populates="experiment")
+    lab_packet: Mapped[LabPacket | None] = relationship(
+        "LabPacket", back_populates="experiment", uselist=False
+    )
 
 
 class ExperimentResult(Base):
@@ -426,6 +429,106 @@ class CloudLabSubmission(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+
+
+class RfqStatus(str, PyEnum):
+    DRAFT = "draft"
+    SENT = "sent"
+    QUOTED = "quoted"
+    ACCEPTED = "accepted"
+    EXPIRED = "expired"
+
+
+class LabPacket(Base):
+    """LLM-generated detailed experiment design for an experiment."""
+
+    __tablename__ = "lab_packets"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
+    experiment_id: Mapped[str] = mapped_column(
+        String, ForeignKey("experiments.id"), unique=True, nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False)
+
+    # Core content
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    objective: Mapped[str] = mapped_column(Text, nullable=False)
+    readouts: Mapped[list[str] | None] = mapped_column(JSON)
+
+    # Experiment design
+    design: Mapped[JsonObject | None] = mapped_column(JSON)
+    # { overview, work_packages[], controls[], sample_size_plan, success_criteria[], estimated_timeline_weeks }
+
+    # Materials & cost
+    materials: Mapped[list[JsonObject] | None] = mapped_column(JSON)
+    # [{ item, supplier, catalog_or_id, link, purpose }]
+    estimated_direct_cost_usd: Mapped[JsonObject | None] = mapped_column(JSON)
+    # { low, high, scope }
+
+    # References & handoff
+    protocol_references: Mapped[list[JsonObject] | None] = mapped_column(JSON)
+    # [{ title, use }]
+    handoff_package_for_lab: Mapped[list[str] | None] = mapped_column(JSON)
+
+    # Generation metadata
+    llm_model: Mapped[str | None] = mapped_column(String)
+    llm_cost_usd: Mapped[float | None] = mapped_column(Float)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    # Relationships
+    experiment: Mapped[Experiment] = relationship("Experiment", back_populates="lab_packet")
+    rfq_package: Mapped[RfqPackage | None] = relationship(
+        "RfqPackage", back_populates="lab_packet", uselist=False
+    )
+
+
+class RfqPackage(Base):
+    """Request for Quote package wrapping a lab packet."""
+
+    __tablename__ = "rfq_packages"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
+    rfq_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    lab_packet_id: Mapped[str] = mapped_column(
+        String, ForeignKey("lab_packets.id"), unique=True, nullable=False
+    )
+    experiment_id: Mapped[str] = mapped_column(
+        String, ForeignKey("experiments.id"), nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False)
+
+    # RFQ content
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    objective: Mapped[str] = mapped_column(Text, nullable=False)
+    scope_of_work: Mapped[list[str] | None] = mapped_column(JSON)
+    client_provided_inputs: Mapped[list[str] | None] = mapped_column(JSON)
+    required_deliverables: Mapped[list[str] | None] = mapped_column(JSON)
+    acceptance_criteria: Mapped[list[str] | None] = mapped_column(JSON)
+    quote_requirements: Mapped[list[str] | None] = mapped_column(JSON)
+
+    # Timeline
+    timeline: Mapped[JsonObject | None] = mapped_column(JSON)
+    # { rfq_issue_date, questions_due, quote_due, target_kickoff }
+
+    # Targeting
+    target_operator_ids: Mapped[list[str] | None] = mapped_column(JSON)
+
+    # Status
+    status: Mapped[RfqStatus] = mapped_column(
+        Enum(RfqStatus), default=RfqStatus.DRAFT
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    # Relationships
+    lab_packet: Mapped[LabPacket] = relationship("LabPacket", back_populates="rfq_package")
 
 
 # Database setup - Use environment variable for production database

@@ -22,9 +22,10 @@ A complete system for connecting scientific ideas to laboratory capacity. This r
 | Case Studies | **Complete** | [Separate repo](https://github.com/litmus-science/litmus-docs) |
 | Examples | **Complete** | All 8 experiment types covered |
 | Tests | **Partial** | Router tests covered; backend/MCP tests pending |
-| Backend API | **Complete** | FastAPI implementation with 30+ endpoints |
+| Backend API | **Complete** | FastAPI implementation with 35+ endpoints |
 | Hypothesis Library | **Complete** | Save, manage, and reuse hypotheses |
 | Edison Integration | **Complete** | AI-powered hypothesis generation |
+| Lab Packets & RFQs | **Complete** | LLM-powered experiment design + quote requests |
 | Cloud Labs | **Complete** | ECL and Strateos protocol translation |
 
 See [TODO.md](TODO.md) for detailed roadmap and next steps.
@@ -82,6 +83,7 @@ litmus-project/
 │   │   ├── ecl/                        # Enko Cloud Lab (SLL protocol)
 │   │   └── strateos/                   # Strateos (Autoprotocol JSON)
 │   └── services/                       # Business logic services
+│       ├── lab_packet_service.py       # Lab packet + RFQ generation
 │       ├── edison_client.py            # Edison Scientific API client
 │       ├── edison_integration.py       # Edison hypothesis pipeline
 │       ├── llm_service.py              # LLM service abstraction
@@ -91,6 +93,7 @@ litmus-project/
 │   ├── app/                            # App router pages
 │   │   ├── hypothesize/                # Hypothesis generation UI
 │   │   ├── experiments/                # Experiment management
+│   │   │   └── [id]/lab-packet/        # Lab packet generation UI
 │   │   └── operator/                   # Operator job management
 │   ├── components/                     # React components
 │   └── lib/                            # Utilities and API clients
@@ -305,9 +308,41 @@ curl -X POST http://localhost:8000/cloud-labs/experiments/<id>/translate \
 
 ---
 
+## Lab Packets & RFQ Workflow
+
+Lab packets are LLM-generated, bench-ready experiment designs derived from experiment specifications.
+
+### What's in a Lab Packet
+
+- **Design**: Work packages, controls, sample size planning, success criteria
+- **Materials**: Bill of materials with vendor search links (Sigma-Aldrich, Thermo Fisher, ATCC, etc.)
+- **Cost Estimate**: Low/high range for direct costs
+- **Handoff Checklist**: Items to communicate to the executing lab
+
+### Workflow
+
+1. **Create Experiment** → submit intake with hypothesis and specifications
+2. **Generate Lab Packet** → LLM analyzes experiment and produces detailed design
+3. **Create RFQ** → deterministically derive a formal Request for Quote from the lab packet
+4. **Send to Operators** → share RFQ with matched operators for quoting
+
+### API Usage
+
+```bash
+# Generate lab packet
+curl -X POST http://localhost:8000/experiments/{id}/lab-packet \
+  -H "Authorization: Bearer <token>"
+
+# Create RFQ from lab packet
+curl -X POST http://localhost:8000/experiments/{id}/rfq \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
 ## API Endpoints
 
-The backend implements 30+ endpoints across several categories:
+The backend implements 35+ endpoints across several categories:
 
 ### Core Experiment Endpoints
 
@@ -347,6 +382,16 @@ The backend implements 30+ endpoints across several categories:
 | `/cloud-labs/edison/runs/{id}/draft` | PATCH | Update draft hypothesis |
 | `/cloud-labs/edison/runs/clear-history` | POST | Clear Edison history |
 | `/cloud-labs/edison/status/{id}` | GET | Get Edison run status |
+
+### Lab Packets & RFQs
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/experiments/{id}/lab-packet` | POST | Generate lab packet (LLM) |
+| `/experiments/{id}/lab-packet` | GET | Get existing lab packet |
+| `/experiments/{id}/rfq` | POST | Generate RFQ from lab packet |
+| `/experiments/{id}/rfq` | GET | Get RFQ package |
+| `/experiments/{id}/rfq` | PATCH | Update RFQ status |
 
 ### Cloud Labs
 

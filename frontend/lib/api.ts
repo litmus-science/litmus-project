@@ -27,6 +27,8 @@ import type {
   HypothesisListResponse,
   HypothesisToExperimentRequest,
   ExperimentCreatedResponse,
+  LabPacket,
+  RfqPackage,
 } from "./types";
 
 export type RateLimitInfo = {
@@ -560,5 +562,53 @@ export async function hypothesisToExperiment(
   return request<ExperimentCreatedResponse>(`/hypotheses/${id}/to-experiment`, {
     method: "POST",
     body: JSON.stringify(data),
+  });
+}
+
+// Lab Packets
+export async function generateLabPacket(
+  experimentId: string,
+  forceRegenerate = false,
+): Promise<LabPacket> {
+  return request<LabPacket>(`/experiments/${experimentId}/lab-packet`, {
+    method: "POST",
+    body: JSON.stringify({ force_regenerate: forceRegenerate }),
+  });
+}
+
+export async function getLabPacket(
+  experimentId: string,
+): Promise<LabPacket> {
+  return request<LabPacket>(`/experiments/${experimentId}/lab-packet`);
+}
+
+// RFQ Packages
+export async function generateRfq(
+  experimentId: string,
+  params?: {
+    questions_due_days?: number;
+    quote_due_days?: number;
+    target_kickoff_days?: number;
+  },
+): Promise<RfqPackage> {
+  return request<RfqPackage>(`/experiments/${experimentId}/rfq`, {
+    method: "POST",
+    body: JSON.stringify(params ?? {}),
+  });
+}
+
+export async function getRfq(
+  experimentId: string,
+): Promise<RfqPackage> {
+  return request<RfqPackage>(`/experiments/${experimentId}/rfq`);
+}
+
+export async function updateRfqStatus(
+  experimentId: string,
+  status: string,
+): Promise<RfqPackage> {
+  return request<RfqPackage>(`/experiments/${experimentId}/rfq`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
   });
 }

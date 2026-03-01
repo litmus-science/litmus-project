@@ -434,3 +434,74 @@ export interface ExperimentCreatedResponse {
   estimated_cost_usd?: number;
   estimated_turnaround_days?: number;
 }
+
+// Lab Packet types
+export interface MaterialItem {
+  item: string;
+  supplier?: string;
+  catalog_or_id?: string;
+  link?: string;
+  purpose?: string;
+}
+
+export interface ProtocolReference {
+  title: string;
+  use?: string;
+}
+
+export interface ExperimentDesign {
+  overview?: string;
+  work_packages: string[];
+  controls: string[];
+  sample_size_plan?: string;
+  success_criteria: string[];
+  estimated_timeline_weeks?: number;
+}
+
+export interface DirectCostEstimate {
+  low: number;
+  high: number;
+  scope?: string;
+}
+
+export interface LabPacket {
+  id: string;
+  experiment_id: string;
+  title: string;
+  objective: string;
+  readouts: string[];
+  design?: ExperimentDesign;
+  materials: MaterialItem[];
+  estimated_direct_cost_usd?: DirectCostEstimate;
+  protocol_references: ProtocolReference[];
+  handoff_package_for_lab: string[];
+  llm_model?: string;
+  llm_cost_usd?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RfqTimeline {
+  rfq_issue_date: string;
+  questions_due: string;
+  quote_due: string;
+  target_kickoff: string;
+}
+
+export interface RfqPackage {
+  id: string;
+  rfq_id: string;
+  experiment_id: string;
+  title: string;
+  objective: string;
+  scope_of_work: string[];
+  client_provided_inputs: string[];
+  required_deliverables: string[];
+  acceptance_criteria: string[];
+  quote_requirements: string[];
+  timeline?: RfqTimeline;
+  target_operator_ids: string[];
+  status: string;
+  created_at: string;
+  updated_at: string;
+}

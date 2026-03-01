@@ -551,3 +551,93 @@ class HypothesisToExperimentRequest(BaseModel):
     bsl_level: BSLLevel | None = None
     privacy: str | None = Field(None, pattern="^(open|private)$")
     title_override: str | None = Field(None, min_length=1, max_length=500)
+
+
+# Lab Packet schemas
+class MaterialItem(BaseModel):
+    item: str
+    supplier: str | None = None
+    catalog_or_id: str | None = None
+    link: str | None = None
+    purpose: str | None = None
+
+
+class ProtocolReference(BaseModel):
+    title: str
+    use: str | None = None
+
+
+class ExperimentDesign(BaseModel):
+    overview: str | None = None
+    work_packages: list[str] = Field(default_factory=list)
+    controls: list[str] = Field(default_factory=list)
+    sample_size_plan: str | None = None
+    success_criteria: list[str] = Field(default_factory=list)
+    estimated_timeline_weeks: int | None = None
+
+
+class DirectCostEstimate(BaseModel):
+    low: float
+    high: float
+    scope: str | None = None
+
+
+class GenerateLabPacketRequest(BaseModel):
+    force_regenerate: bool = False
+
+
+class LabPacketResponse(BaseModel):
+    id: str
+    experiment_id: str
+    title: str
+    objective: str
+    readouts: list[str] = Field(default_factory=list)
+    design: ExperimentDesign | None = None
+    materials: list[MaterialItem] = Field(default_factory=list)
+    estimated_direct_cost_usd: DirectCostEstimate | None = None
+    protocol_references: list[ProtocolReference] = Field(default_factory=list)
+    handoff_package_for_lab: list[str] = Field(default_factory=list)
+    llm_model: str | None = None
+    llm_cost_usd: float | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# RFQ schemas
+class RfqTimeline(BaseModel):
+    rfq_issue_date: str
+    questions_due: str
+    quote_due: str
+    target_kickoff: str
+
+
+class GenerateRfqRequest(BaseModel):
+    questions_due_days: int = Field(7, ge=1, le=90)
+    quote_due_days: int = Field(14, ge=1, le=90)
+    target_kickoff_days: int = Field(28, ge=1, le=180)
+
+
+class RfqPackageResponse(BaseModel):
+    id: str
+    rfq_id: str
+    experiment_id: str
+    title: str
+    objective: str
+    scope_of_work: list[str] = Field(default_factory=list)
+    client_provided_inputs: list[str] = Field(default_factory=list)
+    required_deliverables: list[str] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    quote_requirements: list[str] = Field(default_factory=list)
+    timeline: RfqTimeline | None = None
+    target_operator_ids: list[str] = Field(default_factory=list)
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class RfqStatusUpdate(BaseModel):
+    status: str = Field(..., pattern="^(draft|sent|quoted|accepted|expired)$")

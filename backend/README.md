@@ -14,6 +14,8 @@ This backend implements the full OpenAPI specification (`api/openapi.yaml`) for 
 - **Cost Estimation**: Get cost and turnaround estimates
 - **Templates**: Browse and retrieve protocol templates
 - **Operator Jobs**: Job listing, claiming, and result submission
+- **Lab Packets**: LLM-generated experiment designs with materials, costs, and timelines
+- **RFQ Packages**: Formal quote request generation from lab packets
 - **Webhooks**: Test webhook endpoints
 - **Authentication**: JWT Bearer tokens and API keys
 
@@ -92,6 +94,16 @@ The API will be available at:
 | `/operator/jobs` | GET | List available jobs |
 | `/operator/jobs/{id}/claim` | POST | Claim job |
 | `/operator/jobs/{id}/submit` | POST | Submit results |
+
+### Lab Packets & RFQs
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/experiments/{id}/lab-packet` | POST | Generate lab packet (LLM) |
+| `/experiments/{id}/lab-packet` | GET | Get lab packet |
+| `/experiments/{id}/rfq` | POST | Generate RFQ from lab packet |
+| `/experiments/{id}/rfq` | GET | Get RFQ package |
+| `/experiments/{id}/rfq` | PATCH | Update RFQ status |
 
 ### Webhooks
 
@@ -178,6 +190,8 @@ The backend uses SQLite with async support for development. For production, conf
 - **OperatorProfile**: Operator capabilities and verification
 - **Experiment**: Experiment requests and status
 - **ExperimentResult**: Submitted results
+- **LabPacket**: LLM-generated experiment designs
+- **RfqPackage**: Request for Quote packages
 - **Dispute**: Dispute records
 - **Template**: Protocol templates
 - **FileUpload**: File upload records
@@ -194,6 +208,11 @@ backend/
 ├── schemas.py       # Pydantic request/response schemas
 ├── auth.py          # Authentication and authorization
 ├── requirements.txt # Python dependencies
+├── services/
+│   ├── lab_packet_service.py   # Lab packet + RFQ generation
+│   ├── llm_service.py          # LLM service abstraction
+│   └── prompts/
+│       └── lab_packet.py       # Lab packet prompt template
 └── README.md        # This file
 ```
 
