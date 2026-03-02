@@ -11,7 +11,19 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    inspect,
+)
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -548,6 +560,24 @@ async def init_db() -> None:
     """Initialize database tables."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_apply_compatibility_migrations)
+
+
+def _apply_compatibility_migrations(sync_conn: Connection) -> None:
+    """Apply lightweight, backwards-compatible schema fixes for legacy deployments."""
+    inspector = inspect(sync_conn)
+    if "experiments" not in inspector.get_table_names():
+        return
+
+    experiment_columns = {column["name"] for column in inspector.get_columns("experiments")}
+    if "hypothesis_id" not in experiment_columns:
+        sync_conn.exec_driver_sql("ALTER TABLE experiments ADD COLUMN hypothesis_id VARCHAR")
+
+    experiment_indexes = {index["name"] for index in inspector.get_indexes("experiments")}
+    if "ix_experiments_hypothesis_id" not in experiment_indexes:
+        sync_conn.exec_driver_sql(
+            "CREATE INDEX ix_experiments_hypothesis_id ON experiments (hypothesis_id)"
+        )
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
