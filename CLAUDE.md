@@ -72,6 +72,13 @@ npm run validate:examples  # Validate all examples
 - JWT + API key authentication
 - Rate limiting middleware (in-memory; use Redis for production)
 
+**Lab Packets & RFQs** (`backend/services/lab_packet_service.py`):
+
+- LLM-powered lab packet generation from experiment specs (materials, work packages, controls, cost estimates)
+- Deterministic RFQ (Request for Quote) derivation from lab packets — no LLM call needed
+- Vendor search URL builder for material links (Sigma-Aldrich, Thermo Fisher, ATCC, etc.)
+- Prompt template in `backend/services/prompts/lab_packet.py`
+
 **Cloud Labs** (`backend/cloud_labs/`):
 
 - Protocol translators for automated cloud labs (ECL, Strateos)
@@ -84,7 +91,7 @@ npm run validate:examples  # Validate all examples
 - Next.js 15 with React 19, TypeScript
 - Zustand for state, SWR for data fetching
 - TailwindCSS styling
-- Pages: dashboard, experiment submission, operator job views
+- Pages: dashboard, experiment submission, operator job views, lab packet generation
 
 ### Schemas (`schemas/`)
 
@@ -98,6 +105,7 @@ Three JSON Schema files define the data model:
 
 ```
 Requester (Human/AI) → MCP Tools/REST API → Validation → Router → Lab Assignment → Execution → Results
+                                                      ↘ Lab Packet (LLM) → RFQ → Operator Quoting
 ```
 
 ## Experiment Types

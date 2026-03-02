@@ -107,7 +107,16 @@ from backend.models import (
     HypothesisStatus as DBHypothesisStatus,
 )
 from backend.models import (
+    LabPacket as LabPacketModel,
+)
+from backend.models import (
     PaymentStatus as DBPaymentStatus,
+)
+from backend.models import (
+    RfqPackage as RfqPacketModel,
+)
+from backend.models import (
+    RfqStatus as DBRfqStatus,
 )
 from backend.models import (
     Template as TemplateModel,
@@ -1178,6 +1187,446 @@ async def dispute_results(
 
     return schemas.DisputeResponse(
         dispute_id=dispute.id, experiment_id=experiment.id, status="disputed"
+    )
+
+
+# =============================================================================
+# Lab Packet & RFQ Endpoints
+# =============================================================================
+
+
+@app.post(
+    "/experiments/{experiment_id}/lab-packet",
+    response_model=schemas.LabPacketResponse,
+    tags=["Lab Packets"],
+)
+async def generate_lab_packet_endpoint(
+    experiment_id: str,
+    request: schemas.GenerateLabPacketRequest = schemas.GenerateLabPacketRequest(),
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> schemas.LabPacketResponse:
+    """Generate an LLM-powered lab packet for an experiment."""
+    # Load experiment
+    result = await db.execute(
+        select(ExperimentModel).where(ExperimentModel.id == experiment_id)
+    )
+    experiment = result.scalar_one_or_none()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if experiment.requester_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your experiment")
+
+    # Check for existing packet
+    existing = await db.execute(
+        select(LabPacketModel).where(LabPacketModel.experiment_id == experiment_id)
+    )
+    existing_packet = existing.scalar_one_or_none()
+    if existing_packet and not request.force_regenerate:
+        return _lab_packet_to_response(existing_packet)
+
+    # Generate via LLM
+    from backend.services.lab_packet_service import generate_lab_packet
+    from backend.services.llm_service import get_llm_service
+
+    try:
+        llm = get_llm_service()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=503, detail=f"LLM service unavailable: {exc}"
+        )
+
+    try:
+        packet_data, model_name, cost_usd = await generate_lab_packet(
+            experiment.specification, llm
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Lab packet generation failed: {exc}"
+        )
+
+    # Validate LLM output against Pydantic schemas before persisting
+    from pydantic import ValidationError as PydanticValidationError
+
+    design_raw = packet_data.get("design")
+    if design_raw and isinstance(design_raw, dict):
+        try:
+            schemas.ExperimentDesign(**design_raw)
+        except PydanticValidationError as exc:
+            raise HTTPException(
+                status_code=502, detail=f"LLM returned invalid design: {exc}"
+            )
+    cost_raw = packet_data.get("estimated_direct_cost_usd")
+    if cost_raw and isinstance(cost_raw, dict):
+        try:
+            schemas.DirectCostEstimate(**cost_raw)
+        except PydanticValidationError as exc:
+            raise HTTPException(
+                status_code=502, detail=f"LLM returned invalid cost estimate: {exc}"
+            )
+    materials_raw = packet_data.get("materials", [])
+    if materials_raw is None:
+        materials_raw = []
+    if not isinstance(materials_raw, list):
+        raise HTTPException(
+            status_code=502,
+            detail="LLM returned invalid materials: expected an array of objects",
+        )
+    for m in materials_raw:
+        if not isinstance(m, dict):
+            raise HTTPException(
+                status_code=502,
+                detail="LLM returned invalid materials: each material must be an object",
+            )
+        try:
+            schemas.MaterialItem(**m)
+        except PydanticValidationError as exc:
+            raise HTTPException(status_code=502, detail=f"LLM returned invalid material: {exc}")
+
+    protocol_references_raw = packet_data.get("protocol_references", [])
+    if protocol_references_raw is None:
+        protocol_references_raw = []
+    if not isinstance(protocol_references_raw, list):
+        raise HTTPException(
+            status_code=502,
+            detail="LLM returned invalid protocol references: expected an array of objects",
+        )
+    for r in protocol_references_raw:
+        if not isinstance(r, dict):
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "LLM returned invalid protocol references: "
+                    "each protocol reference must be an object"
+                ),
+            )
+        try:
+            schemas.ProtocolReference(**r)
+        except PydanticValidationError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"LLM returned invalid protocol reference: {exc}",
+            )
+
+    title_raw = packet_data.get("title", experiment.specification.get("title", ""))
+    if not isinstance(title_raw, str):
+        raise HTTPException(
+            status_code=502, detail="LLM returned invalid title: expected a string"
+        )
+
+    objective_raw = packet_data.get("objective", "")
+    if not isinstance(objective_raw, str):
+        raise HTTPException(
+            status_code=502, detail="LLM returned invalid objective: expected a string"
+        )
+
+    readouts_raw = packet_data.get("readouts", [])
+    if readouts_raw is None:
+        readouts_raw = []
+    if not isinstance(readouts_raw, list) or not all(
+        isinstance(readout, str) for readout in readouts_raw
+    ):
+        raise HTTPException(
+            status_code=502, detail="LLM returned invalid readouts: expected an array of strings"
+        )
+
+    handoff_package_raw = packet_data.get("handoff_package_for_lab", [])
+    if handoff_package_raw is None:
+        handoff_package_raw = []
+    if not isinstance(handoff_package_raw, list) or not all(
+        isinstance(item, str) for item in handoff_package_raw
+    ):
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "LLM returned invalid handoff package: expected an array of strings"
+            ),
+        )
+
+    # Build shared field values for both create and update paths
+    fields = {
+        "title": title_raw,
+        "objective": objective_raw,
+        "readouts": readouts_raw,
+        "design": design_raw,
+        "materials": materials_raw,
+        "estimated_direct_cost_usd": cost_raw,
+        "protocol_references": protocol_references_raw,
+        "handoff_package_for_lab": handoff_package_raw,
+        "llm_model": model_name,
+        "llm_cost_usd": cost_usd,
+    }
+
+    if existing_packet:
+        for key, value in fields.items():
+            setattr(existing_packet, key, value)
+        existing_packet.updated_at = datetime.utcnow()
+        packet = existing_packet
+    else:
+        packet = LabPacketModel(
+            experiment_id=experiment_id,
+            user_id=current_user.id,
+            **fields,
+        )
+        db.add(packet)
+
+    await db.flush()
+    return _lab_packet_to_response(packet)
+
+
+@app.get(
+    "/experiments/{experiment_id}/lab-packet",
+    response_model=schemas.LabPacketResponse,
+    tags=["Lab Packets"],
+)
+async def get_lab_packet_endpoint(
+    experiment_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> schemas.LabPacketResponse:
+    """Get the lab packet for an experiment."""
+    result = await db.execute(
+        select(LabPacketModel).where(LabPacketModel.experiment_id == experiment_id)
+    )
+    packet = result.scalar_one_or_none()
+    if not packet:
+        raise HTTPException(status_code=404, detail="Lab packet not found. Generate one first.")
+    if packet.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your lab packet")
+    return _lab_packet_to_response(packet)
+
+
+@app.post(
+    "/experiments/{experiment_id}/rfq",
+    response_model=schemas.RfqPackageResponse,
+    tags=["Lab Packets"],
+)
+async def generate_rfq_endpoint(
+    experiment_id: str,
+    request: schemas.GenerateRfqRequest = schemas.GenerateRfqRequest(),
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> schemas.RfqPackageResponse:
+    """Generate an RFQ package from an experiment's lab packet."""
+    # Load lab packet
+    result = await db.execute(
+        select(LabPacketModel).where(LabPacketModel.experiment_id == experiment_id)
+    )
+    packet = result.scalar_one_or_none()
+    if not packet:
+        raise HTTPException(status_code=404, detail="Lab packet not found. Generate one first.")
+
+    # Load experiment for spec
+    exp_result = await db.execute(
+        select(ExperimentModel).where(ExperimentModel.id == experiment_id)
+    )
+    experiment = exp_result.scalar_one_or_none()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if experiment.requester_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your experiment")
+
+    # Check for existing RFQ
+    existing = await db.execute(
+        select(RfqPacketModel).where(RfqPacketModel.lab_packet_id == packet.id)
+    )
+    existing_rfq = existing.scalar_one_or_none()
+    timeline_matches_request = False
+    if existing_rfq and isinstance(existing_rfq.timeline, dict):
+        rfq_issue_date_raw = existing_rfq.timeline.get("rfq_issue_date")
+        questions_due_raw = existing_rfq.timeline.get("questions_due")
+        quote_due_raw = existing_rfq.timeline.get("quote_due")
+        target_kickoff_raw = existing_rfq.timeline.get("target_kickoff")
+        if (
+            isinstance(rfq_issue_date_raw, str)
+            and isinstance(questions_due_raw, str)
+            and isinstance(quote_due_raw, str)
+            and isinstance(target_kickoff_raw, str)
+        ):
+            try:
+                rfq_issue_date = datetime.fromisoformat(rfq_issue_date_raw).date()
+                questions_due = datetime.fromisoformat(questions_due_raw).date()
+                quote_due = datetime.fromisoformat(quote_due_raw).date()
+                target_kickoff = datetime.fromisoformat(target_kickoff_raw).date()
+                timeline_matches_request = (
+                    (questions_due - rfq_issue_date).days == request.questions_due_days
+                    and (quote_due - rfq_issue_date).days == request.quote_due_days
+                    and (target_kickoff - rfq_issue_date).days == request.target_kickoff_days
+                )
+            except ValueError:
+                timeline_matches_request = False
+
+    if (
+        existing_rfq
+        and existing_rfq.updated_at >= packet.updated_at
+        and timeline_matches_request
+    ):
+        return _rfq_to_response(existing_rfq)
+
+    # Generate RFQ deterministically
+    from backend.services.lab_packet_service import generate_rfq_from_packet
+
+    packet_data = {
+        "title": packet.title,
+        "objective": packet.objective,
+        "readouts": packet.readouts or [],
+        "design": packet.design or {},
+        "materials": packet.materials or [],
+        "estimated_direct_cost_usd": packet.estimated_direct_cost_usd,
+        "protocol_references": packet.protocol_references or [],
+        "handoff_package_for_lab": packet.handoff_package_for_lab or [],
+    }
+
+    rfq_data = generate_rfq_from_packet(
+        packet_data,
+        experiment_id,
+        experiment.specification,
+        questions_due_days=request.questions_due_days,
+        quote_due_days=request.quote_due_days,
+        target_kickoff_days=request.target_kickoff_days,
+    )
+
+    if existing_rfq:
+        existing_rfq.rfq_id = rfq_data["rfq_id"]
+        existing_rfq.title = rfq_data["title"]
+        existing_rfq.objective = rfq_data["objective"]
+        existing_rfq.scope_of_work = rfq_data["scope_of_work"]
+        existing_rfq.client_provided_inputs = rfq_data["client_provided_inputs"]
+        existing_rfq.required_deliverables = rfq_data["required_deliverables"]
+        existing_rfq.acceptance_criteria = rfq_data["acceptance_criteria"]
+        existing_rfq.quote_requirements = rfq_data["quote_requirements"]
+        existing_rfq.timeline = rfq_data["timeline"]
+        existing_rfq.updated_at = datetime.utcnow()
+        rfq = existing_rfq
+    else:
+        rfq = RfqPacketModel(
+            rfq_id=rfq_data["rfq_id"],
+            lab_packet_id=packet.id,
+            experiment_id=experiment_id,
+            user_id=current_user.id,
+            title=rfq_data["title"],
+            objective=rfq_data["objective"],
+            scope_of_work=rfq_data["scope_of_work"],
+            client_provided_inputs=rfq_data["client_provided_inputs"],
+            required_deliverables=rfq_data["required_deliverables"],
+            acceptance_criteria=rfq_data["acceptance_criteria"],
+            quote_requirements=rfq_data["quote_requirements"],
+            timeline=rfq_data["timeline"],
+        )
+        db.add(rfq)
+    await db.flush()
+    return _rfq_to_response(rfq)
+
+
+@app.get(
+    "/experiments/{experiment_id}/rfq",
+    response_model=schemas.RfqPackageResponse,
+    tags=["Lab Packets"],
+)
+async def get_rfq_endpoint(
+    experiment_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> schemas.RfqPackageResponse:
+    """Get the RFQ package for an experiment."""
+    result = await db.execute(
+        select(RfqPacketModel).where(RfqPacketModel.experiment_id == experiment_id)
+    )
+    rfq = result.scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found. Generate one first.")
+    if rfq.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your RFQ")
+    return _rfq_to_response(rfq)
+
+
+@app.patch(
+    "/experiments/{experiment_id}/rfq",
+    response_model=schemas.RfqPackageResponse,
+    tags=["Lab Packets"],
+)
+async def update_rfq_status_endpoint(
+    experiment_id: str,
+    request: schemas.RfqStatusUpdate,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> schemas.RfqPackageResponse:
+    """Update the status of an RFQ package."""
+    result = await db.execute(
+        select(RfqPacketModel).where(RfqPacketModel.experiment_id == experiment_id)
+    )
+    rfq = result.scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    if rfq.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your RFQ")
+
+    rfq.status = DBRfqStatus(request.status)
+    rfq.updated_at = datetime.utcnow()
+    await db.flush()
+    return _rfq_to_response(rfq)
+
+
+def _lab_packet_to_response(packet: LabPacketModel) -> schemas.LabPacketResponse:
+    design = packet.design
+    design_obj = None
+    if design and isinstance(design, dict):
+        design_obj = schemas.ExperimentDesign(**design)
+
+    cost = packet.estimated_direct_cost_usd
+    cost_obj = None
+    if cost and isinstance(cost, dict):
+        cost_obj = schemas.DirectCostEstimate(**cost)
+
+    materials = [
+        schemas.MaterialItem(**m) if isinstance(m, dict) else m
+        for m in (packet.materials or [])
+    ]
+    refs = [
+        schemas.ProtocolReference(**r) if isinstance(r, dict) else r
+        for r in (packet.protocol_references or [])
+    ]
+
+    return schemas.LabPacketResponse(
+        id=packet.id,
+        experiment_id=packet.experiment_id,
+        title=packet.title,
+        objective=packet.objective,
+        readouts=packet.readouts or [],
+        design=design_obj,
+        materials=materials,
+        estimated_direct_cost_usd=cost_obj,
+        protocol_references=refs,
+        handoff_package_for_lab=packet.handoff_package_for_lab or [],
+        llm_model=packet.llm_model,
+        llm_cost_usd=packet.llm_cost_usd,
+        created_at=packet.created_at,
+        updated_at=packet.updated_at,
+    )
+
+
+def _rfq_to_response(rfq: RfqPacketModel) -> schemas.RfqPackageResponse:
+    timeline = rfq.timeline
+    timeline_obj = None
+    if timeline and isinstance(timeline, dict):
+        timeline_obj = schemas.RfqTimeline(**timeline)
+
+    return schemas.RfqPackageResponse(
+        id=rfq.id,
+        rfq_id=rfq.rfq_id,
+        experiment_id=rfq.experiment_id,
+        title=rfq.title,
+        objective=rfq.objective,
+        scope_of_work=rfq.scope_of_work or [],
+        client_provided_inputs=rfq.client_provided_inputs or [],
+        required_deliverables=rfq.required_deliverables or [],
+        acceptance_criteria=rfq.acceptance_criteria or [],
+        quote_requirements=rfq.quote_requirements or [],
+        timeline=timeline_obj,
+        target_operator_ids=rfq.target_operator_ids or [],
+        status=rfq.status.value if hasattr(rfq.status, "value") else rfq.status,
+        created_at=rfq.created_at,
+        updated_at=rfq.updated_at,
     )
 
 
