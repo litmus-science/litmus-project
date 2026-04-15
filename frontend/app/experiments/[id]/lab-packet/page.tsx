@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { getLabPacket, generateLabPacket, getRfq, generateRfq } from "@/lib/api";
+import { getLabPacket, generateLabPacket } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { LabPacket, RfqPackage } from "@/lib/types";
+import type { LabPacket } from "@/lib/types";
 import { ApiError } from "@/lib/api";
 
 export default function LabPacketPage() {
@@ -15,10 +15,8 @@ export default function LabPacketPage() {
   const experimentId = params.id as string;
 
   const [packet, setPacket] = useState<LabPacket | null>(null);
-  const [rfq, setRfq] = useState<RfqPackage | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
-  const [generatingRfq, setGeneratingRfq] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -32,13 +30,6 @@ export default function LabPacketPage() {
       try {
         const data = await getLabPacket(experimentId);
         setPacket(data);
-        // Also try loading RFQ
-        try {
-          const rfqData = await getRfq(experimentId);
-          setRfq(rfqData);
-        } catch {
-          // No RFQ yet, that's fine
-        }
       } catch (err) {
         // 404 = no packet yet, show generate UI
         // Also swallow network errors on initial load since the packet may just not exist
@@ -64,19 +55,6 @@ export default function LabPacketPage() {
       setError(err instanceof Error ? err.message : "Generation failed");
     } finally {
       setGenerating(false);
-    }
-  };
-
-  const handleGenerateRfq = async () => {
-    setGeneratingRfq(true);
-    setError("");
-    try {
-      const data = await generateRfq(experimentId);
-      setRfq(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "RFQ generation failed");
-    } finally {
-      setGeneratingRfq(false);
     }
   };
 
@@ -432,140 +410,26 @@ export default function LabPacketPage() {
             </div>
           )}
 
-          {/* RFQ Section */}
+          {/* Find Matching Labs CTA */}
           <div className="border-t border-surface-200 pt-6">
-            {!rfq ? (
-              <div className="bg-white border border-surface-200 p-8 text-center">
-                <h2 className="font-display text-lg text-surface-900 mb-2">
-                  Request for Quote
-                </h2>
-                <p className="text-surface-500 text-sm mb-6 max-w-md mx-auto">
-                  Generate an RFQ package to solicit quotes from operators.
-                  Includes scope of work, deliverables, acceptance criteria, and
-                  timeline.
-                </p>
-                <button
-                  onClick={handleGenerateRfq}
-                  disabled={generatingRfq}
-                  className="btn-primary text-xs"
-                >
-                  {generatingRfq ? (
-                    <span className="flex items-center gap-2">
-                      <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                      Generating RFQ...
-                    </span>
-                  ) : (
-                    "Generate RFQ"
-                  )}
-                </button>
+            <div className="bg-white border border-surface-200 p-8 text-center">
+              <div className="w-12 h-12 bg-surface-900 flex items-center justify-center mx-auto mb-6">
+                <span className="text-accent font-display text-xl">L</span>
               </div>
-            ) : (
-              <div className="bg-white border border-surface-200">
-                <div className="px-6 py-4 border-b border-surface-100">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="text-[10px] tracking-widest-plus uppercase text-surface-400 mb-1">
-                        RFQ &middot; {rfq.rfq_id}
-                      </p>
-                      <h2 className="font-display text-lg text-surface-900">
-                        {rfq.title}
-                      </h2>
-                    </div>
-                    <span className="text-[10px] tracking-widest-plus uppercase bg-surface-100 text-surface-500 px-2 py-1">
-                      {rfq.status}
-                    </span>
-                  </div>
-                  <p className="text-sm text-surface-600 mt-2">
-                    {rfq.objective}
-                  </p>
-                </div>
-
-                {/* Scope */}
-                {rfq.scope_of_work.length > 0 && (
-                  <div className="px-6 py-4 border-b border-surface-100">
-                    <h3 className="text-[10px] tracking-widest-plus uppercase text-surface-400 mb-3">
-                      Scope of Work
-                    </h3>
-                    <ul className="space-y-2">
-                      {rfq.scope_of_work.map((s, i) => (
-                        <li key={i} className="text-sm text-surface-700 flex gap-2">
-                          <span className="text-accent font-mono text-xs mt-0.5">
-                            {i + 1}
-                          </span>
-                          {s}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Deliverables */}
-                {rfq.required_deliverables.length > 0 && (
-                  <div className="px-6 py-4 border-b border-surface-100">
-                    <h3 className="text-[10px] tracking-widest-plus uppercase text-surface-400 mb-3">
-                      Required Deliverables
-                    </h3>
-                    <ul className="space-y-1.5">
-                      {rfq.required_deliverables.map((d, i) => (
-                        <li key={i} className="text-sm text-surface-700 flex gap-2">
-                          <span className="text-surface-300">&#8226;</span>
-                          {d}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Acceptance Criteria */}
-                {rfq.acceptance_criteria.length > 0 && (
-                  <div className="px-6 py-4 border-b border-surface-100">
-                    <h3 className="text-[10px] tracking-widest-plus uppercase text-surface-400 mb-3">
-                      Acceptance Criteria
-                    </h3>
-                    <ul className="space-y-1.5">
-                      {rfq.acceptance_criteria.map((a, i) => (
-                        <li key={i} className="text-sm text-surface-700 flex gap-2">
-                          <span className="text-accent mt-0.5">&#10003;</span>
-                          {a}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Timeline */}
-                {rfq.timeline && (
-                  <div className="px-6 py-4">
-                    <h3 className="text-[10px] tracking-widest-plus uppercase text-surface-400 mb-3">
-                      Timeline
-                    </h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      {[
-                        { label: "Issued", value: rfq.timeline.rfq_issue_date },
-                        {
-                          label: "Questions Due",
-                          value: rfq.timeline.questions_due,
-                        },
-                        { label: "Quote Due", value: rfq.timeline.quote_due },
-                        {
-                          label: "Target Kickoff",
-                          value: rfq.timeline.target_kickoff,
-                        },
-                      ].map((t) => (
-                        <div key={t.label}>
-                          <p className="text-[10px] text-surface-400 uppercase tracking-wider">
-                            {t.label}
-                          </p>
-                          <p className="text-sm font-mono text-surface-700 mt-0.5">
-                            {t.value}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+              <h2 className="font-display text-lg text-surface-900 mb-2">
+                Find Matching Labs
+              </h2>
+              <p className="text-surface-500 text-sm mb-6 max-w-md mx-auto">
+                See ranked lab partners that can execute this experiment —
+                scored on capabilities, quality, cost, and turnaround.
+              </p>
+              <Link
+                href={`/experiments/${experimentId}/matching`}
+                className="btn-primary text-xs"
+              >
+                Find Matching Labs
+              </Link>
+            </div>
           </div>
         </div>
       )}
