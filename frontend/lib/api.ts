@@ -29,6 +29,7 @@ import type {
   ExperimentCreatedResponse,
   LabPacket,
   RfqPackage,
+  RoutingResult,
 } from "./types";
 
 export type RateLimitInfo = {
@@ -611,4 +612,9 @@ export async function updateRfqStatus(
     method: "PATCH",
     body: JSON.stringify({ status }),
   });
+}
+
+// Lab Matching
+export async function matchLabs(experimentId: string): Promise<RoutingResult> {
+  return request<RoutingResult>(`/experiments/${experimentId}/matching`);
 }

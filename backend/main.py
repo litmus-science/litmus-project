@@ -1567,6 +1567,140 @@ async def update_rfq_status_endpoint(
     return _rfq_to_response(rfq)
 
 
+@app.get(
+    "/experiments/{experiment_id}/matching",
+    tags=["Lab Matching"],
+)
+async def get_lab_matching_endpoint(
+    experiment_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return matched labs for an experiment (demo data seeded with real CRO partners)."""
+    result = await db.execute(
+        select(ExperimentModel).where(ExperimentModel.id == experiment_id)
+    )
+    experiment = result.scalar_one_or_none()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if experiment.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your experiment")
+
+    spec = experiment.specification or {}
+    experiment_type = spec.get("experiment_type", "CUSTOM") if isinstance(spec, dict) else "CUSTOM"
+    budget = spec.get("turnaround_budget", {}) if isinstance(spec, dict) else {}
+    budget_max = budget.get("budget_max_usd", 1000) if isinstance(budget, dict) else 1000
+
+    top_matches = [
+        {
+            "lab_id": "ginkgo-bioworks-001",
+            "lab_name": "Ginkgo Bioworks",
+            "location": "Boston, MA",
+            "logo_initials": "GB",
+            "score": 0.91,
+            "score_breakdown": {
+                "menu_fit": 0.95,
+                "quality": 0.92,
+                "cost_fit": 0.88,
+                "turnaround_fit": 0.90,
+                "deliverables_match": 0.95,
+                "spec_completeness": 0.85,
+                "logistics": 0.90,
+            },
+            "flags": [],
+            "deliverables_gaps": [],
+            "estimated_tat_days": 7,
+            "pricing_band_usd": {"min": round(budget_max * 0.55), "max": round(budget_max * 0.80)},
+            "capabilities": [
+                "Cell viability assays",
+                "High-throughput screening",
+                "BSL-2 certified",
+                "IC50 determination",
+                "Full data interpretation (L2)",
+            ],
+            "quality_metrics": {
+                "on_time_rate": 0.97,
+                "average_rating": 4.8,
+                "rerun_rate": 0.02,
+            },
+        },
+        {
+            "lab_id": "wuxi-apptec-001",
+            "lab_name": "WuXi AppTec",
+            "location": "Shanghai, CN / Philadelphia, PA",
+            "logo_initials": "WX",
+            "score": 0.86,
+            "score_breakdown": {
+                "menu_fit": 0.90,
+                "quality": 0.88,
+                "cost_fit": 0.95,
+                "turnaround_fit": 0.82,
+                "deliverables_match": 0.88,
+                "spec_completeness": 0.85,
+                "logistics": 0.72,
+            },
+            "flags": ["International shipping may add 2-3 days"],
+            "deliverables_gaps": [],
+            "estimated_tat_days": 10,
+            "pricing_band_usd": {"min": round(budget_max * 0.38), "max": round(budget_max * 0.62)},
+            "capabilities": [
+                "Large-scale compound screening",
+                "ADMET profiling",
+                "BSL-2 certified",
+                "Enzyme inhibition assays",
+                "GMP-compliant workflows",
+            ],
+            "quality_metrics": {
+                "on_time_rate": 0.93,
+                "average_rating": 4.6,
+                "rerun_rate": 0.04,
+            },
+        },
+        {
+            "lab_id": "benchling-labs-001",
+            "lab_name": "Benchling Partner Labs",
+            "location": "San Francisco, CA",
+            "logo_initials": "BL",
+            "score": 0.79,
+            "score_breakdown": {
+                "menu_fit": 0.82,
+                "quality": 0.85,
+                "cost_fit": 0.78,
+                "turnaround_fit": 0.88,
+                "deliverables_match": 0.75,
+                "spec_completeness": 0.85,
+                "logistics": 0.60,
+            },
+            "flags": ["Capacity limited — 1 slot available"],
+            "deliverables_gaps": ["L2 interpretation not available for this assay type"],
+            "estimated_tat_days": 5,
+            "pricing_band_usd": {"min": round(budget_max * 0.70), "max": round(budget_max * 1.05)},
+            "capabilities": [
+                "Microbial assays",
+                "qPCR expression",
+                "BSL-1/BSL-2 certified",
+                "Rapid turnaround",
+            ],
+            "quality_metrics": {
+                "on_time_rate": 0.89,
+                "average_rating": 4.4,
+                "rerun_rate": 0.06,
+            },
+        },
+    ]
+
+    return {
+        "experiment_id": experiment_id,
+        "experiment_type": experiment_type,
+        "top_matches": top_matches,
+        "all_matches_count": len(top_matches),
+        "filtered_out": {
+            "BSL level too low": ["Acme Lab Services"],
+            "Experiment type not in menu": ["QuickBio Inc."],
+        },
+    }
+
+
 def _lab_packet_to_response(packet: LabPacketModel) -> schemas.LabPacketResponse:
     design = packet.design
     design_obj = None

@@ -488,6 +488,40 @@ export interface RfqTimeline {
   target_kickoff: string;
 }
 
+// Lab Matching types
+export interface LabMatch {
+  lab_id: string;
+  lab_name: string;
+  location: string;
+  logo_initials: string;
+  score: number;
+  score_breakdown: {
+    menu_fit: number;
+    quality: number;
+    cost_fit: number;
+    turnaround_fit: number;
+    deliverables_match: number;
+    spec_completeness: number;
+    logistics: number;
+  };
+  flags: string[];
+  deliverables_gaps: string[];
+  estimated_tat_days: number | null;
+  pricing_band_usd: { min: number | null; max: number | null } | null;
+  capabilities: string[];
+  quality_metrics: {
+    on_time_rate: number;
+    average_rating: number;
+    rerun_rate: number;
+  };
+}
+
+export interface RoutingResult {
+  top_matches: LabMatch[];
+  all_matches_count: number;
+  filtered_out: Record<string, string[]>;
+}
+
 export interface RfqPackage {
   id: string;
   rfq_id: string;

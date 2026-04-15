@@ -202,12 +202,18 @@ export default function ExperimentDetailPage() {
         </div>
 
         {/* Actions */}
-        <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+        <div className="px-6 py-4 border-t border-gray-200 flex gap-3 flex-wrap">
           <Link
             href={`/experiments/${experimentId}/lab-packet`}
             className="btn-primary text-xs"
           >
             Lab Packet
+          </Link>
+          <Link
+            href={`/experiments/${experimentId}/matching`}
+            className="bg-emerald-600 text-white hover:bg-emerald-700 px-4 py-2 rounded-md text-sm font-medium"
+          >
+            See Matched Labs
           </Link>
           {experiment.status === "completed" && (
             <Link
