@@ -553,7 +553,64 @@ class HypothesisToExperimentRequest(BaseModel):
     title_override: str | None = Field(None, min_length=1, max_length=500)
 
 
-# Lab Packet schemas
+# Lab Packet schemas — v2
+class StudyParameters(BaseModel):
+    model_config = {"extra": "allow"}
+    test_compounds: str | None = None
+    concentration_points: str | None = None
+    replicates: str | None = None
+    cell_line_or_organism: str | None = None
+    incubation_duration: str | None = None
+    plate_format: str | None = None
+    total_wells_per_plate: str | None = None
+
+
+class TestArticle(BaseModel):
+    id: str
+    role: str
+    top_concentration: str | None = None
+    dilution_scheme: str | None = None
+    vehicle: str | None = None
+
+
+class CellRequirements(BaseModel):
+    model_config = {"extra": "allow"}
+    cell_line: str | None = None
+    passage_range: str | None = None
+    mycoplasma_testing: str | None = None
+    authentication: str | None = None
+    culture_medium: str | None = None
+    incubation_conditions: str | None = None
+    confluency_at_seeding: str | None = None
+
+
+class ProtocolStep(BaseModel):
+    step: int
+    day: str | None = None
+    title: str
+    procedure: str
+    critical_notes: str | None = None
+
+
+class ReagentItem(BaseModel):
+    item: str
+    specification: str | None = None
+    supplier: str | None = None
+    catalog_or_id: str | None = None
+    link: str | None = None
+
+
+class AcceptanceCriterion(BaseModel):
+    parameter: str
+    requirement: str
+
+
+class Deliverable(BaseModel):
+    name: str
+    description: str
+
+
+# Lab Packet schemas — v1 (kept for backward compat)
 class MaterialItem(BaseModel):
     item: str
     supplier: str | None = None
@@ -591,12 +648,24 @@ class LabPacketResponse(BaseModel):
     experiment_id: str
     title: str
     objective: str
+    # v2 fields
+    study_parameters: StudyParameters | None = None
+    test_articles: list[TestArticle] = Field(default_factory=list)
+    compound_supply_instructions: str | None = None
+    cell_requirements: CellRequirements | None = None
+    protocol_steps: list[ProtocolStep] = Field(default_factory=list)
+    reagents_and_consumables: list[ReagentItem] = Field(default_factory=list)
+    acceptance_criteria: list[AcceptanceCriterion] = Field(default_factory=list)
+    deliverables: list[Deliverable] = Field(default_factory=list)
+    sponsor_provided_inputs: list[str] = Field(default_factory=list)
+    # v1 fields (backward compat)
     readouts: list[str] = Field(default_factory=list)
     design: ExperimentDesign | None = None
     materials: list[MaterialItem] = Field(default_factory=list)
+    handoff_package_for_lab: list[str] = Field(default_factory=list)
+    # shared
     estimated_direct_cost_usd: DirectCostEstimate | None = None
     protocol_references: list[ProtocolReference] = Field(default_factory=list)
-    handoff_package_for_lab: list[str] = Field(default_factory=list)
     llm_model: str | None = None
     llm_cost_usd: float | None = None
     created_at: datetime

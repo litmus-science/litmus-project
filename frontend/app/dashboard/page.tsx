@@ -8,13 +8,13 @@ import { useAuth } from "@/lib/auth";
 import { ExperimentCard } from "@/components/ExperimentCard";
 import type { Experiment, ExperimentStatus } from "@/lib/types";
 
-const statusFilters: { label: string; value: ExperimentStatus | "all" }[] = [
-  { label: "All", value: "all" },
-  { label: "Draft", value: "draft" },
-  { label: "Open", value: "open" },
+const STATUS_FILTERS: { label: string; value: ExperimentStatus | "all" }[] = [
+  { label: "All",         value: "all" },
+  { label: "Draft",       value: "draft" },
+  { label: "Open",        value: "open" },
   { label: "In Progress", value: "in_progress" },
-  { label: "Completed", value: "completed" },
-  { label: "Disputed", value: "disputed" },
+  { label: "Completed",   value: "completed" },
+  { label: "Disputed",    value: "disputed" },
 ];
 
 export default function DashboardPage() {
@@ -23,9 +23,7 @@ export default function DashboardPage() {
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [statusFilter, setStatusFilter] = useState<ExperimentStatus | "all">(
-    "all",
-  );
+  const [statusFilter, setStatusFilter] = useState<ExperimentStatus | "all">("all");
 
   useEffect(() => {
     if (!authChecked) {
@@ -38,8 +36,7 @@ export default function DashboardPage() {
 
     async function fetchExperiments() {
       try {
-        const params =
-          statusFilter !== "all" ? { status: statusFilter } : undefined;
+        const params = statusFilter !== "all" ? { status: statusFilter } : undefined;
         const data = await listExperiments(params);
         setExperiments(data.experiments);
       } catch (err) {
@@ -78,17 +75,17 @@ export default function DashboardPage() {
 
       <div className="mb-8">
         <div className="flex gap-2 flex-wrap">
-          {statusFilters.map((filter) => (
+          {STATUS_FILTERS.map((f) => (
             <button
-              key={filter.value}
-              onClick={() => setStatusFilter(filter.value)}
+              key={f.value}
+              onClick={() => setStatusFilter(f.value)}
               className={`px-4 py-2 text-sm font-mono uppercase tracking-wide transition-all ${
-                statusFilter === filter.value
+                statusFilter === f.value
                   ? "bg-accent text-white"
                   : "bg-surface-100 text-surface-500 hover:bg-surface-200 hover:text-surface-700"
               }`}
             >
-              {filter.label}
+              {f.label}
             </button>
           ))}
         </div>

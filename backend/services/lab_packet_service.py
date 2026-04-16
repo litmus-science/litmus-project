@@ -150,8 +150,9 @@ async def generate_lab_packet(
 
     packet_data = json.loads(content.strip())
 
-    # Post-process materials: build vendor search URLs for recognized suppliers
-    for mat in packet_data.get("materials", []):
+    # Post-process reagents: build vendor search URLs for recognized suppliers.
+    # Support both the new "reagents_and_consumables" field and the legacy "materials" field.
+    for mat in packet_data.get("reagents_and_consumables", packet_data.get("materials", [])):
         link = _build_material_link(mat.get("supplier"), mat.get("catalog_or_id"))
         if link:
             mat["link"] = link
@@ -178,28 +179,47 @@ def generate_rfq_from_packet(
     """Deterministically derive an RFQ package from a lab packet. No LLM call needed."""
     today = date.today()
 
+    # Support both new schema and legacy schema fields
     design = packet_data.get("design", {})
+    protocol_steps = packet_data.get("protocol_steps", [])
     work_packages = design.get("work_packages", []) if isinstance(design, dict) else []
-    controls = design.get("controls", []) if isinstance(design, dict) else []
-    success_criteria = design.get("success_criteria", []) if isinstance(design, dict) else []
-    readouts = packet_data.get("readouts", [])
-    handoff = packet_data.get("handoff_package_for_lab", [])
 
-    # Derive scope of work from work packages
-    scope_of_work = list(work_packages)
-    if controls:
-        scope_of_work.append(f"Include controls: {'; '.join(controls)}")
+    # Scope of work: prefer protocol step titles, fall back to work packages
+    if protocol_steps:
+        scope_of_work = [
+            f"Step {s.get('step', i+1)} ({s.get('day', '')}): {s.get('title', '')}"
+            for i, s in enumerate(protocol_steps)
+            if isinstance(s, dict)
+        ]
+    else:
+        scope_of_work = list(work_packages)
 
-    # Derive deliverables from readouts + handoff
-    required_deliverables = []
-    for readout in readouts:
-        required_deliverables.append(f"Data for: {readout}")
-    required_deliverables.append("Raw instrument/output files in machine-readable format")
-    required_deliverables.append("QC summary and analysis report")
-
-    # Acceptance criteria from success criteria
-    acceptance_criteria = list(success_criteria)
+    # Acceptance criteria: prefer new structured list, fall back to success_criteria strings
+    raw_ac = packet_data.get("acceptance_criteria", [])
+    if raw_ac and isinstance(raw_ac[0], dict):
+        acceptance_criteria = [
+            f"{ac.get('parameter', '')}: {ac.get('requirement', '')}"
+            for ac in raw_ac
+            if isinstance(ac, dict)
+        ]
+    else:
+        success_criteria = design.get("success_criteria", []) if isinstance(design, dict) else []
+        acceptance_criteria = list(raw_ac) or list(success_criteria)
     acceptance_criteria.append("All protocol deviations documented with timestamps and notes")
+
+    # Deliverables: prefer new structured list, build fallback from readouts
+    raw_deliverables = packet_data.get("deliverables", [])
+    if raw_deliverables and isinstance(raw_deliverables[0], dict):
+        required_deliverables = [
+            f"{d.get('name', '')}: {d.get('description', '')}"
+            for d in raw_deliverables
+            if isinstance(d, dict)
+        ]
+    else:
+        readouts = packet_data.get("readouts", [])
+        required_deliverables = [f"Data for: {r}" for r in readouts]
+        required_deliverables.append("Raw instrument/output files in machine-readable format")
+        required_deliverables.append("QC summary and analysis report")
 
     # Standard quote requirements
     quote_requirements = [
@@ -209,8 +229,10 @@ def generate_rfq_from_packet(
         "Data delivery format and transfer mechanism",
     ]
 
-    # Client-provided inputs from handoff package
-    client_provided_inputs = list(handoff) if handoff else [
+    # Sponsor-provided inputs: prefer new field, fall back to legacy handoff field
+    sponsor_inputs = packet_data.get("sponsor_provided_inputs", [])
+    legacy_handoff = packet_data.get("handoff_package_for_lab", [])
+    client_provided_inputs = list(sponsor_inputs) or list(legacy_handoff) or [
         "Experiment specification and hypothesis details",
         "Any client-supplied materials or reagents",
     ]

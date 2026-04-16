@@ -436,6 +436,65 @@ export interface ExperimentCreatedResponse {
 }
 
 // Lab Packet types
+
+// ── New schema (v2) ──────────────────────────────────────────────────────────
+
+export interface StudyParameters {
+  test_compounds?: string;
+  concentration_points?: string;
+  replicates?: string;
+  cell_line_or_organism?: string;
+  incubation_duration?: string;
+  plate_format?: string;
+  total_wells_per_plate?: string;
+}
+
+export interface TestArticle {
+  id: string;
+  role: string;
+  top_concentration?: string;
+  dilution_scheme?: string;
+  vehicle?: string;
+}
+
+export interface CellRequirements {
+  cell_line?: string;
+  passage_range?: string;
+  mycoplasma_testing?: string;
+  authentication?: string;
+  culture_medium?: string;
+  incubation_conditions?: string;
+  confluency_at_seeding?: string;
+}
+
+export interface ProtocolStep {
+  step: number;
+  day?: string;
+  title: string;
+  procedure: string;
+  critical_notes?: string;
+}
+
+export interface ReagentItem {
+  item: string;
+  specification?: string;
+  supplier?: string;
+  catalog_or_id?: string;
+  link?: string;
+}
+
+export interface AcceptanceCriterion {
+  parameter: string;
+  requirement: string;
+}
+
+export interface Deliverable {
+  name: string;
+  description: string;
+}
+
+// ── Legacy schema (v1) ───────────────────────────────────────────────────────
+
 export interface MaterialItem {
   item: string;
   supplier?: string;
@@ -469,12 +528,24 @@ export interface LabPacket {
   experiment_id: string;
   title: string;
   objective: string;
-  readouts: string[];
+  // v2 fields
+  study_parameters?: StudyParameters;
+  test_articles?: TestArticle[];
+  compound_supply_instructions?: string;
+  cell_requirements?: CellRequirements;
+  protocol_steps?: ProtocolStep[];
+  reagents_and_consumables?: ReagentItem[];
+  acceptance_criteria?: AcceptanceCriterion[];
+  deliverables?: Deliverable[];
+  sponsor_provided_inputs?: string[];
+  // v1 fields (kept for backward compat)
+  readouts?: string[];
   design?: ExperimentDesign;
-  materials: MaterialItem[];
+  materials?: MaterialItem[];
+  handoff_package_for_lab?: string[];
+  // shared
   estimated_direct_cost_usd?: DirectCostEstimate;
-  protocol_references: ProtocolReference[];
-  handoff_package_for_lab: string[];
+  protocol_references?: ProtocolReference[];
   llm_model?: string;
   llm_cost_usd?: number;
   created_at: string;

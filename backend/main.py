@@ -976,6 +976,49 @@ async def update_experiment(
     )
 
 
+@app.post(
+    "/experiments/{experiment_id}/submit-for-quote",
+    response_model=schemas.Experiment,
+    tags=["Experiments"],
+)
+async def submit_for_quote(
+    experiment_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> schemas.Experiment:
+    """Transition experiment to OPEN so labs can quote on it."""
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
+    experiment = result.scalar_one_or_none()
+
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if experiment.requester_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if experiment.status not in [DBExperimentStatus.DRAFT, DBExperimentStatus.PENDING_REVIEW]:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Experiment is already {experiment.status.value}",
+        )
+
+    experiment.status = DBExperimentStatus.OPEN
+    await db.commit()
+    await db.refresh(experiment)
+
+    return schemas.Experiment(
+        id=experiment.id,
+        status=schemas.ExperimentStatus(experiment.status.value),
+        experiment_type=experiment.experiment_type or "",
+        specification=experiment.specification or {},
+        created_at=experiment.created_at,
+        updated_at=experiment.updated_at,
+        cost=schemas.CostInfo(
+            estimated_usd=experiment.estimated_cost_usd,
+            final_usd=experiment.final_cost_usd,
+            payment_status=schemas.PaymentStatus(experiment.payment_status.value) if experiment.payment_status else schemas.PaymentStatus.PENDING,
+        ),
+    )
+
+
 @app.delete(
     "/experiments/{experiment_id}", response_model=schemas.CancelResponse, tags=["Experiments"]
 )
@@ -1343,6 +1386,14 @@ async def generate_lab_packet_endpoint(
             ),
         )
 
+    # Collect v2 fields into extra_data blob (pass-through — no strict validation)
+    V2_KEYS = [
+        "study_parameters", "test_articles", "compound_supply_instructions",
+        "cell_requirements", "protocol_steps", "reagents_and_consumables",
+        "acceptance_criteria", "deliverables", "sponsor_provided_inputs",
+    ]
+    extra_data = {k: packet_data[k] for k in V2_KEYS if k in packet_data}
+
     # Build shared field values for both create and update paths
     fields = {
         "title": title_raw,
@@ -1353,6 +1404,7 @@ async def generate_lab_packet_endpoint(
         "estimated_direct_cost_usd": cost_raw,
         "protocol_references": protocol_references_raw,
         "handoff_package_for_lab": handoff_package_raw,
+        "extra_data": extra_data or None,
         "llm_model": model_name,
         "llm_cost_usd": cost_usd,
     }
@@ -1567,6 +1619,236 @@ async def update_rfq_status_endpoint(
     return _rfq_to_response(rfq)
 
 
+
+# ── CRO profile catalogue ────────────────────────────────────────────────────
+# Each entry declares which experiment types the lab supports, their capabilities,
+# typical TAT, pricing as a fraction of budget, and stock quality metrics.
+_CRO_PROFILES: list[dict] = [
+    {
+        "lab_id": "eurofins-discovery",
+        "lab_name": "Eurofins Discovery",
+        "location": "Dundee, UK",
+        "logo_initials": "ED",
+        "experiment_types": {"CELL_VIABILITY_IC50", "ENZYME_INHIBITION_IC50", "QPCR_EXPRESSION", "CUSTOM"},
+        "capabilities": ["CellTiter-Glo / CTG-2 viability", "IC50 & EC50 determination", "Enzyme inhibition (fluorescence, luminescence)", "qPCR expression profiling", "4PL curve fitting", "BSL-2 certified", "L2 data interpretation"],
+        "tat_days": {"CELL_VIABILITY_IC50": 10, "ENZYME_INHIBITION_IC50": 7, "QPCR_EXPRESSION": 8, "CUSTOM": 14},
+        "price_range": (0.60, 0.90),
+        "logistics": 0.78,
+        "quality_metrics": {"on_time_rate": 0.95, "average_rating": 4.7, "rerun_rate": 0.03},
+    },
+    {
+        "lab_id": "cyprotex",
+        "lab_name": "Cyprotex (Evotec)",
+        "location": "Macclesfield, UK",
+        "logo_initials": "CX",
+        "experiment_types": {"CELL_VIABILITY_IC50", "ENZYME_INHIBITION_IC50", "CUSTOM"},
+        "capabilities": ["Cell-based cytotoxicity", "IC50 profiling", "ADME / Caco-2", "CYP inhibition", "hERG safety", "BSL-2 certified", "GLP-compliant workflows"],
+        "tat_days": {"CELL_VIABILITY_IC50": 8, "ENZYME_INHIBITION_IC50": 6, "CUSTOM": 12},
+        "price_range": (0.70, 1.05),
+        "logistics": 0.76,
+        "quality_metrics": {"on_time_rate": 0.96, "average_rating": 4.8, "rerun_rate": 0.02},
+    },
+    {
+        "lab_id": "reaction-biology",
+        "lab_name": "Reaction Biology",
+        "location": "Malvern, PA",
+        "logo_initials": "RB",
+        "experiment_types": {"ENZYME_INHIBITION_IC50", "CELL_VIABILITY_IC50", "CUSTOM"},
+        "capabilities": ["Kinase inhibition profiling", "Enzyme IC50 (radiometric & fluorescence)", "Selectivity panels", "Compound QC", "BSL-2 certified"],
+        "tat_days": {"ENZYME_INHIBITION_IC50": 5, "CELL_VIABILITY_IC50": 10, "CUSTOM": 12},
+        "price_range": (0.55, 0.85),
+        "logistics": 0.92,
+        "quality_metrics": {"on_time_rate": 0.94, "average_rating": 4.6, "rerun_rate": 0.04},
+    },
+    {
+        "lab_id": "wuxi-apptec",
+        "lab_name": "WuXi AppTec",
+        "location": "Philadelphia, PA / Shanghai, CN",
+        "logo_initials": "WX",
+        "experiment_types": {"CELL_VIABILITY_IC50", "ENZYME_INHIBITION_IC50", "QPCR_EXPRESSION", "MICROBIAL_GROWTH_MATRIX", "MIC_MBC_ASSAY", "CUSTOM"},
+        "capabilities": ["Full-service CRO", "Cell viability & cytotoxicity", "Enzyme assays", "Microbial screening", "ADMET profiling", "BSL-2 certified", "GMP-compliant", "High-throughput capacity"],
+        "tat_days": {"CELL_VIABILITY_IC50": 12, "ENZYME_INHIBITION_IC50": 9, "QPCR_EXPRESSION": 10, "MICROBIAL_GROWTH_MATRIX": 8, "MIC_MBC_ASSAY": 7, "CUSTOM": 14},
+        "price_range": (0.40, 0.65),
+        "logistics": 0.80,
+        "quality_metrics": {"on_time_rate": 0.93, "average_rating": 4.5, "rerun_rate": 0.05},
+    },
+    {
+        "lab_id": "charles-river",
+        "lab_name": "Charles River Laboratories",
+        "location": "Wilmington, MA",
+        "logo_initials": "CR",
+        "experiment_types": {"CELL_VIABILITY_IC50", "ENZYME_INHIBITION_IC50", "MICROBIAL_GROWTH_MATRIX", "MIC_MBC_ASSAY", "ZONE_OF_INHIBITION", "CUSTOM"},
+        "capabilities": ["Cell viability screening", "Antimicrobial efficacy", "MIC / MBC determination", "Zone of inhibition", "Microbiology panels", "BSL-2/BSL-3 certified", "Full GLP capacity"],
+        "tat_days": {"CELL_VIABILITY_IC50": 10, "ENZYME_INHIBITION_IC50": 8, "MICROBIAL_GROWTH_MATRIX": 7, "MIC_MBC_ASSAY": 6, "ZONE_OF_INHIBITION": 5, "CUSTOM": 14},
+        "price_range": (0.75, 1.10),
+        "logistics": 0.90,
+        "quality_metrics": {"on_time_rate": 0.96, "average_rating": 4.7, "rerun_rate": 0.03},
+    },
+    {
+        "lab_id": "genewiz",
+        "lab_name": "GENEWIZ (Azenta)",
+        "location": "South Plainfield, NJ",
+        "logo_initials": "GW",
+        "experiment_types": {"SANGER_PLASMID_VERIFICATION", "QPCR_EXPRESSION", "CUSTOM"},
+        "capabilities": ["Sanger sequencing", "Plasmid verification", "Next-gen sequencing", "qPCR & RT-qPCR", "RNA extraction", "Primer design", "Fast 24-h Sanger turnaround"],
+        "tat_days": {"SANGER_PLASMID_VERIFICATION": 2, "QPCR_EXPRESSION": 5, "CUSTOM": 10},
+        "price_range": (0.20, 0.45),
+        "logistics": 0.92,
+        "quality_metrics": {"on_time_rate": 0.98, "average_rating": 4.8, "rerun_rate": 0.01},
+    },
+    {
+        "lab_id": "eton-bioscience",
+        "lab_name": "Eton Bioscience",
+        "location": "San Diego, CA",
+        "logo_initials": "EB",
+        "experiment_types": {"SANGER_PLASMID_VERIFICATION", "QPCR_EXPRESSION"},
+        "capabilities": ["Sanger sequencing", "Plasmid verification", "Primer synthesis", "qPCR panels", "Same-day Sanger service"],
+        "tat_days": {"SANGER_PLASMID_VERIFICATION": 1, "QPCR_EXPRESSION": 4},
+        "price_range": (0.15, 0.35),
+        "logistics": 0.90,
+        "quality_metrics": {"on_time_rate": 0.97, "average_rating": 4.7, "rerun_rate": 0.02},
+    },
+    {
+        "lab_id": "selvita",
+        "lab_name": "Selvita",
+        "location": "Kraków, Poland",
+        "logo_initials": "SV",
+        "experiment_types": {"CELL_VIABILITY_IC50", "ENZYME_INHIBITION_IC50", "QPCR_EXPRESSION", "CUSTOM"},
+        "capabilities": ["Cell-based assays", "IC50 profiling", "Biochemical enzyme assays", "qPCR", "BSL-2 certified", "Competitive pricing"],
+        "tat_days": {"CELL_VIABILITY_IC50": 12, "ENZYME_INHIBITION_IC50": 10, "QPCR_EXPRESSION": 9, "CUSTOM": 14},
+        "price_range": (0.35, 0.60),
+        "logistics": 0.70,
+        "quality_metrics": {"on_time_rate": 0.91, "average_rating": 4.4, "rerun_rate": 0.05},
+    },
+    {
+        "lab_id": "micromyx",
+        "lab_name": "Micromyx",
+        "location": "Kalamazoo, MI",
+        "logo_initials": "MM",
+        "experiment_types": {"MIC_MBC_ASSAY", "MICROBIAL_GROWTH_MATRIX", "ZONE_OF_INHIBITION", "CUSTOM"},
+        "capabilities": ["MIC / MBC by CLSI broth microdilution", "Antimicrobial time-kill assays", "Zone of inhibition", "Bacterial growth curves", "ESKAPE pathogens", "BSL-2 certified", "CLSI-compliant methods"],
+        "tat_days": {"MIC_MBC_ASSAY": 5, "MICROBIAL_GROWTH_MATRIX": 6, "ZONE_OF_INHIBITION": 4, "CUSTOM": 10},
+        "price_range": (0.45, 0.75),
+        "logistics": 0.88,
+        "quality_metrics": {"on_time_rate": 0.95, "average_rating": 4.7, "rerun_rate": 0.03},
+    },
+    {
+        "lab_id": "asinex-bio",
+        "lab_name": "Asinex Bioassays",
+        "location": "Winston-Salem, NC",
+        "logo_initials": "AB",
+        "experiment_types": {"CELL_VIABILITY_IC50", "ENZYME_INHIBITION_IC50", "MICROBIAL_GROWTH_MATRIX", "ZONE_OF_INHIBITION", "CUSTOM"},
+        "capabilities": ["Cell viability (CTG, MTS, SRB)", "Enzyme inhibition", "Antimicrobial MIC panels", "Zone of inhibition", "BSL-2 certified", "Custom assay development"],
+        "tat_days": {"CELL_VIABILITY_IC50": 9, "ENZYME_INHIBITION_IC50": 7, "MICROBIAL_GROWTH_MATRIX": 6, "ZONE_OF_INHIBITION": 5, "CUSTOM": 12},
+        "price_range": (0.50, 0.80),
+        "logistics": 0.88,
+        "quality_metrics": {"on_time_rate": 0.92, "average_rating": 4.5, "rerun_rate": 0.04},
+    },
+    {
+        "lab_id": "qps-bioanalytical",
+        "lab_name": "QPS Bioanalytical",
+        "location": "Newark, DE",
+        "logo_initials": "QP",
+        "experiment_types": {"QPCR_EXPRESSION", "CELL_VIABILITY_IC50", "ENZYME_INHIBITION_IC50", "CUSTOM"},
+        "capabilities": ["qPCR & ddPCR", "Gene expression profiling", "Bioanalytical assays", "PK/PD sample analysis", "BSL-2 certified", "GLP-compliant"],
+        "tat_days": {"QPCR_EXPRESSION": 7, "CELL_VIABILITY_IC50": 10, "ENZYME_INHIBITION_IC50": 8, "CUSTOM": 12},
+        "price_range": (0.65, 0.95),
+        "logistics": 0.92,
+        "quality_metrics": {"on_time_rate": 0.94, "average_rating": 4.6, "rerun_rate": 0.03},
+    },
+    {
+        "lab_id": "viracor-eurofins",
+        "lab_name": "Viracor Eurofins",
+        "location": "Lee's Summit, MO",
+        "logo_initials": "VE",
+        "experiment_types": {"QPCR_EXPRESSION", "SANGER_PLASMID_VERIFICATION", "MICROBIAL_GROWTH_MATRIX", "CUSTOM"},
+        "capabilities": ["qPCR & RT-PCR", "Sanger sequencing", "Microbial culture & ID", "Infectious disease testing", "BSL-2/BSL-3 certified", "CAP/CLIA accredited"],
+        "tat_days": {"QPCR_EXPRESSION": 5, "SANGER_PLASMID_VERIFICATION": 3, "MICROBIAL_GROWTH_MATRIX": 5, "CUSTOM": 10},
+        "price_range": (0.55, 0.85),
+        "logistics": 0.88,
+        "quality_metrics": {"on_time_rate": 0.96, "average_rating": 4.6, "rerun_rate": 0.02},
+    },
+]
+
+# Weights for composite score
+_SCORE_WEIGHTS = {
+    "menu_fit": 0.25,
+    "quality": 0.20,
+    "cost_fit": 0.15,
+    "turnaround_fit": 0.15,
+    "deliverables_match": 0.15,
+    "logistics": 0.10,
+}
+
+def _score_lab(profile: dict, experiment_type: str, budget_max: float) -> dict | None:
+    """Score a lab profile against an experiment type and budget. Returns None if filtered out."""
+    if experiment_type not in profile["experiment_types"] and experiment_type != "CUSTOM":
+        return None  # Hard filter: type not in menu
+
+    tat = profile["tat_days"].get(experiment_type, profile["tat_days"].get("CUSTOM", 14))
+    price_lo, price_hi = profile["price_range"]
+
+    # menu_fit: full score if type explicitly supported
+    menu_fit = 1.0 if experiment_type in profile["experiment_types"] else 0.60
+
+    # quality: derived from average_rating
+    qm = profile["quality_metrics"]
+    quality = (qm["average_rating"] / 5.0) * 0.85 + (1 - qm["rerun_rate"]) * 0.15
+
+    # cost_fit: best when price_lo < budget, penalise if price_hi > 1.5x budget
+    mid_price = (price_lo + price_hi) / 2 * budget_max
+    if budget_max <= 0:
+        cost_fit = 0.80
+    elif mid_price <= budget_max:
+        cost_fit = min(1.0, 0.85 + (budget_max - mid_price) / budget_max * 0.15)
+    else:
+        cost_fit = max(0.30, 1.0 - (mid_price - budget_max) / budget_max * 0.5)
+
+    # turnaround_fit: 5 days = 1.0, 14 days = 0.5, linear
+    turnaround_fit = max(0.40, 1.0 - (tat - 5) / 18)
+
+    # deliverables_match: full if capabilities mention L2 or interpretation
+    caps_text = " ".join(profile["capabilities"]).lower()
+    deliverables_match = 1.0 if any(k in caps_text for k in ["l2", "interpretation", "analysis", "report"]) else 0.75
+
+    breakdown = {
+        "menu_fit": round(menu_fit, 2),
+        "quality": round(quality, 2),
+        "cost_fit": round(cost_fit, 2),
+        "turnaround_fit": round(turnaround_fit, 2),
+        "deliverables_match": round(deliverables_match, 2),
+        "spec_completeness": 0.85,
+        "logistics": round(profile["logistics"], 2),
+    }
+
+    composite = sum(breakdown[k] * _SCORE_WEIGHTS[k] for k in _SCORE_WEIGHTS)
+    composite += breakdown["spec_completeness"] * 0.0  # not in weighted sum, display only
+
+    flags = []
+    if profile["logistics"] < 0.80:
+        flags.append("International shipping may add transit time")
+    if price_hi * budget_max > budget_max * 1.1:
+        flags.append("Price may exceed budget at high end")
+
+    return {
+        "lab_id": profile["lab_id"],
+        "lab_name": profile["lab_name"],
+        "location": profile["location"],
+        "logo_initials": profile["logo_initials"],
+        "score": round(composite, 3),
+        "score_breakdown": breakdown,
+        "flags": flags,
+        "deliverables_gaps": [] if deliverables_match >= 1.0 else ["Full L2 interpretation not confirmed"],
+        "estimated_tat_days": tat,
+        "pricing_band_usd": {
+            "min": round(budget_max * price_lo),
+            "max": round(budget_max * price_hi),
+        },
+        "capabilities": profile["capabilities"],
+        "quality_metrics": profile["quality_metrics"],
+    }
+
+
 @app.get(
     "/experiments/{experiment_id}/matching",
     tags=["Lab Matching"],
@@ -1576,128 +1858,57 @@ async def get_lab_matching_endpoint(
     current_user: AuthUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Return matched labs for an experiment (demo data seeded with real CRO partners)."""
+    """Return matched labs for an experiment, scored by assay type and budget."""
     result = await db.execute(
         select(ExperimentModel).where(ExperimentModel.id == experiment_id)
     )
     experiment = result.scalar_one_or_none()
     if not experiment:
         raise HTTPException(status_code=404, detail="Experiment not found")
-    if experiment.user_id != current_user.id:
+    if experiment.requester_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not your experiment")
 
     spec = experiment.specification or {}
-    experiment_type = spec.get("experiment_type", "CUSTOM") if isinstance(spec, dict) else "CUSTOM"
+    raw_type = spec.get("experiment_type", "CUSTOM") if isinstance(spec, dict) else "CUSTOM"
+    # Normalize short-form / lowercase types to canonical uppercase enum values
+    _TYPE_ALIASES: dict[str, str] = {
+        "cell_viability": "CELL_VIABILITY_IC50",
+        "cell_viability_ic50": "CELL_VIABILITY_IC50",
+        "enzyme_inhibition": "ENZYME_INHIBITION_IC50",
+        "enzyme_inhibition_ic50": "ENZYME_INHIBITION_IC50",
+        "sanger": "SANGER_PLASMID_VERIFICATION",
+        "sanger_plasmid_verification": "SANGER_PLASMID_VERIFICATION",
+        "qpcr": "QPCR_EXPRESSION",
+        "qpcr_expression": "QPCR_EXPRESSION",
+        "microbial_growth": "MICROBIAL_GROWTH_MATRIX",
+        "microbial_growth_matrix": "MICROBIAL_GROWTH_MATRIX",
+        "mic_mbc": "MIC_MBC_ASSAY",
+        "mic_mbc_assay": "MIC_MBC_ASSAY",
+        "zone_of_inhibition": "ZONE_OF_INHIBITION",
+        "custom": "CUSTOM",
+    }
+    experiment_type = _TYPE_ALIASES.get(raw_type.lower(), raw_type.upper())
     budget = spec.get("turnaround_budget", {}) if isinstance(spec, dict) else {}
-    budget_max = budget.get("budget_max_usd", 1000) if isinstance(budget, dict) else 1000
+    budget_max = float(budget.get("budget_max_usd", 1000)) if isinstance(budget, dict) else 1000.0
 
-    top_matches = [
-        {
-            "lab_id": "ginkgo-bioworks-001",
-            "lab_name": "Ginkgo Bioworks",
-            "location": "Boston, MA",
-            "logo_initials": "GB",
-            "score": 0.91,
-            "score_breakdown": {
-                "menu_fit": 0.95,
-                "quality": 0.92,
-                "cost_fit": 0.88,
-                "turnaround_fit": 0.90,
-                "deliverables_match": 0.95,
-                "spec_completeness": 0.85,
-                "logistics": 0.90,
-            },
-            "flags": [],
-            "deliverables_gaps": [],
-            "estimated_tat_days": 7,
-            "pricing_band_usd": {"min": round(budget_max * 0.55), "max": round(budget_max * 0.80)},
-            "capabilities": [
-                "Cell viability assays",
-                "High-throughput screening",
-                "BSL-2 certified",
-                "IC50 determination",
-                "Full data interpretation (L2)",
-            ],
-            "quality_metrics": {
-                "on_time_rate": 0.97,
-                "average_rating": 4.8,
-                "rerun_rate": 0.02,
-            },
-        },
-        {
-            "lab_id": "wuxi-apptec-001",
-            "lab_name": "WuXi AppTec",
-            "location": "Shanghai, CN / Philadelphia, PA",
-            "logo_initials": "WX",
-            "score": 0.86,
-            "score_breakdown": {
-                "menu_fit": 0.90,
-                "quality": 0.88,
-                "cost_fit": 0.95,
-                "turnaround_fit": 0.82,
-                "deliverables_match": 0.88,
-                "spec_completeness": 0.85,
-                "logistics": 0.72,
-            },
-            "flags": ["International shipping may add 2-3 days"],
-            "deliverables_gaps": [],
-            "estimated_tat_days": 10,
-            "pricing_band_usd": {"min": round(budget_max * 0.38), "max": round(budget_max * 0.62)},
-            "capabilities": [
-                "Large-scale compound screening",
-                "ADMET profiling",
-                "BSL-2 certified",
-                "Enzyme inhibition assays",
-                "GMP-compliant workflows",
-            ],
-            "quality_metrics": {
-                "on_time_rate": 0.93,
-                "average_rating": 4.6,
-                "rerun_rate": 0.04,
-            },
-        },
-        {
-            "lab_id": "benchling-labs-001",
-            "lab_name": "Benchling Partner Labs",
-            "location": "San Francisco, CA",
-            "logo_initials": "BL",
-            "score": 0.79,
-            "score_breakdown": {
-                "menu_fit": 0.82,
-                "quality": 0.85,
-                "cost_fit": 0.78,
-                "turnaround_fit": 0.88,
-                "deliverables_match": 0.75,
-                "spec_completeness": 0.85,
-                "logistics": 0.60,
-            },
-            "flags": ["Capacity limited — 1 slot available"],
-            "deliverables_gaps": ["L2 interpretation not available for this assay type"],
-            "estimated_tat_days": 5,
-            "pricing_band_usd": {"min": round(budget_max * 0.70), "max": round(budget_max * 1.05)},
-            "capabilities": [
-                "Microbial assays",
-                "qPCR expression",
-                "BSL-1/BSL-2 certified",
-                "Rapid turnaround",
-            ],
-            "quality_metrics": {
-                "on_time_rate": 0.89,
-                "average_rating": 4.4,
-                "rerun_rate": 0.06,
-            },
-        },
-    ]
+    scored: list[dict] = []
+    filtered_out: dict[str, list[str]] = {}
+
+    for profile in _CRO_PROFILES:
+        match = _score_lab(profile, experiment_type, budget_max)
+        if match is None:
+            filtered_out.setdefault("Experiment type not in menu", []).append(profile["lab_name"])
+        else:
+            scored.append(match)
+
+    scored.sort(key=lambda x: x["score"], reverse=True)
 
     return {
         "experiment_id": experiment_id,
         "experiment_type": experiment_type,
-        "top_matches": top_matches,
-        "all_matches_count": len(top_matches),
-        "filtered_out": {
-            "BSL level too low": ["Acme Lab Services"],
-            "Experiment type not in menu": ["QuickBio Inc."],
-        },
+        "top_matches": scored,
+        "all_matches_count": len(scored),
+        "filtered_out": filtered_out,
     }
 
 
@@ -1721,17 +1932,42 @@ def _lab_packet_to_response(packet: LabPacketModel) -> schemas.LabPacketResponse
         for r in (packet.protocol_references or [])
     ]
 
+    # Unpack v2 extra_data
+    ed = packet.extra_data or {}
+
+    def _parse_list(key: str, cls: type) -> list:
+        items = ed.get(key) or []
+        return [cls(**x) if isinstance(x, dict) else x for x in items]
+
+    study_params = ed.get("study_parameters")
+    study_params_obj = schemas.StudyParameters(**study_params) if isinstance(study_params, dict) else None
+
+    cell_req = ed.get("cell_requirements")
+    cell_req_obj = schemas.CellRequirements(**cell_req) if isinstance(cell_req, dict) else None
+
     return schemas.LabPacketResponse(
         id=packet.id,
         experiment_id=packet.experiment_id,
         title=packet.title,
         objective=packet.objective,
+        # v2
+        study_parameters=study_params_obj,
+        test_articles=_parse_list("test_articles", schemas.TestArticle),
+        compound_supply_instructions=ed.get("compound_supply_instructions"),
+        cell_requirements=cell_req_obj,
+        protocol_steps=_parse_list("protocol_steps", schemas.ProtocolStep),
+        reagents_and_consumables=_parse_list("reagents_and_consumables", schemas.ReagentItem),
+        acceptance_criteria=_parse_list("acceptance_criteria", schemas.AcceptanceCriterion),
+        deliverables=_parse_list("deliverables", schemas.Deliverable),
+        sponsor_provided_inputs=ed.get("sponsor_provided_inputs") or [],
+        # v1
         readouts=packet.readouts or [],
         design=design_obj,
         materials=materials,
+        handoff_package_for_lab=packet.handoff_package_for_lab or [],
+        # shared
         estimated_direct_cost_usd=cost_obj,
         protocol_references=refs,
-        handoff_package_for_lab=packet.handoff_package_for_lab or [],
         llm_model=packet.llm_model,
         llm_cost_usd=packet.llm_cost_usd,
         created_at=packet.created_at,

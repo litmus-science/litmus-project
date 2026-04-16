@@ -13,11 +13,7 @@ export function Navbar() {
 
   useEffect(() => {
     setMounted(true);
-
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 20);
-    };
-
+    const handleScroll = () => setScrolled(window.scrollY > 20);
     handleScroll();
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
@@ -32,53 +28,43 @@ export function Navbar() {
 
   return (
     <nav
-      className={`sticky top-0 z-50 transition-all duration-300 ${
+      className={`sticky top-0 z-50 transition-all duration-200 ${
         scrolled
-          ? "bg-surface-off-white/95 backdrop-blur-sm border-b border-surface-200"
-          : "bg-surface-off-white border-b border-transparent"
+          ? "bg-white/95 backdrop-blur-sm border-b border-surface-200 shadow-sm"
+          : "bg-white border-b border-surface-200"
       }`}
     >
       <div className="max-w-7xl mx-auto px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          <div className="flex items-center">
-            <Link href="/" className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-surface-900 flex items-center justify-center">
-                <span className="text-accent font-display text-lg">L</span>
+        <div className="flex justify-between h-14">
+          <div className="flex items-center gap-8">
+            <Link href="/" className="flex items-center gap-2.5">
+              <div className="w-7 h-7 bg-accent rounded-md flex items-center justify-center">
+                <span className="text-white font-bold text-sm">L</span>
               </div>
-              <span className="text-sm font-medium tracking-widest uppercase text-surface-900">
+              <span className="text-sm font-semibold text-surface-900 tracking-tight">
                 Litmus
               </span>
             </Link>
             {isLoggedIn && (
-              <div className="ml-12 flex items-center space-x-1">
-                <Link
-                  href="/dashboard"
-                  className="text-surface-500 hover:text-accent px-3 py-2 text-sm transition-colors tracking-wide"
-                >
-                  Dashboard
-                </Link>
-                <Link
-                  href="/experiments/new"
-                  className="text-surface-500 hover:text-accent px-3 py-2 text-sm transition-colors tracking-wide"
-                >
-                  New Experiment
-                </Link>
-                <Link
-                  href="/hypothesize"
-                  className="text-surface-500 hover:text-accent px-3 py-2 text-sm transition-colors tracking-wide"
-                >
-                  Hypothesize
-                </Link>
-                <Link
-                  href="/templates"
-                  className="text-surface-500 hover:text-accent px-3 py-2 text-sm transition-colors tracking-wide"
-                >
-                  Templates
-                </Link>
+              <div className="flex items-center gap-1">
+                {[
+                  { href: "/dashboard", label: "Dashboard" },
+                  { href: "/experiments/new", label: "New Experiment" },
+                  { href: "/hypothesize", label: "Hypothesize" },
+                  { href: "/templates", label: "Templates" },
+                ].map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className="px-3 py-1.5 text-sm text-surface-500 hover:text-surface-900 hover:bg-surface-100 rounded-md transition-colors"
+                  >
+                    {link.label}
+                  </Link>
+                ))}
                 {user?.role === "operator" && (
                   <Link
                     href="/operator/jobs"
-                    className="text-surface-500 hover:text-accent px-3 py-2 text-sm transition-colors tracking-wide"
+                    className="px-3 py-1.5 text-sm text-surface-500 hover:text-surface-900 hover:bg-surface-100 rounded-md transition-colors"
                   >
                     Available Jobs
                   </Link>
@@ -88,20 +74,20 @@ export function Navbar() {
           </div>
           <div className="flex items-center">
             {isLoggedIn ? (
-              <div className="flex items-center space-x-6">
-                <span className="text-sm text-surface-400">{user?.email}</span>
+              <div className="flex items-center gap-4">
+                <span className="text-xs text-surface-400">{user?.email}</span>
                 <button
                   onClick={handleLogout}
-                  className="text-surface-500 hover:text-accent text-sm transition-colors tracking-wide"
+                  className="text-sm text-surface-500 hover:text-surface-900 transition-colors"
                 >
                   Logout
                 </button>
               </div>
             ) : (
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center gap-3">
                 <Link
                   href="/login"
-                  className="text-surface-500 hover:text-accent text-sm transition-colors tracking-wide"
+                  className="text-sm text-surface-500 hover:text-surface-900 transition-colors"
                 >
                   Login
                 </Link>

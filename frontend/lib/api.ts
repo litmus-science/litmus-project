@@ -614,6 +614,12 @@ export async function updateRfqStatus(
   });
 }
 
+export async function submitForQuote(experimentId: string): Promise<Experiment> {
+  return request<Experiment>(`/experiments/${experimentId}/submit-for-quote`, {
+    method: "POST",
+  });
+}
+
 // Lab Matching
 export async function matchLabs(experimentId: string): Promise<RoutingResult> {
   return request<RoutingResult>(`/experiments/${experimentId}/matching`);

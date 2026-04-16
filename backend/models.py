@@ -482,6 +482,12 @@ class LabPacket(Base):
     # [{ title, use }]
     handoff_package_for_lab: Mapped[list[str] | None] = mapped_column(JSON)
 
+    # v2 fields — all new schema fields stored as a single JSON blob
+    # Keys: study_parameters, test_articles, compound_supply_instructions,
+    #       cell_requirements, protocol_steps, reagents_and_consumables,
+    #       acceptance_criteria, deliverables, sponsor_provided_inputs
+    extra_data: Mapped[JsonObject | None] = mapped_column(JSON)
+
     # Generation metadata
     llm_model: Mapped[str | None] = mapped_column(String)
     llm_cost_usd: Mapped[float | None] = mapped_column(Float)
