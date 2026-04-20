@@ -9,18 +9,24 @@
   }
 
   body {
-    @apply bg-surface-50 text-surface-800 font-body;
-    font-size: 15px;
+    background: #FFFFFF;
+    color: #1A1A1A;
+    font-family: Calibri, var(--font-lato), Arial, sans-serif;
+    font-size: 13px;
     line-height: 1.6;
   }
 
   ::selection {
-    @apply bg-accent text-white;
+    background: #9FE1CB;
+    color: #04342C;
   }
 
+  /* Headings use Georgia, regular weight — not semibold */
   h1, h2, h3, h4, h5, h6 {
-    @apply font-display text-surface-900 font-semibold;
-    letter-spacing: -0.02em;
+    font-family: Georgia, "Times New Roman", serif;
+    font-weight: 400;
+    color: #1A1A1A;
+    line-height: 1.25;
   }
 }
 
@@ -31,73 +37,181 @@
 @layer components {
   /* ── Buttons ─────────────────────────────────────── */
   .btn-primary {
-    @apply inline-flex items-center justify-center
-           bg-accent text-white hover:bg-accent-dim
-           px-4 py-2 text-sm font-medium rounded-md
-           transition-colors duration-150;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #0F6E56;
+    color: #E1F5EE;
+    border: none;
+    padding: 6px 14px;
+    font-family: Calibri, var(--font-lato), Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 150ms;
+    text-decoration: none;
+  }
+  .btn-primary:hover {
+    background: #00695C;
+  }
+  .btn-primary:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center
-           bg-white text-surface-700 hover:bg-surface-100
-           border border-surface-200
-           px-4 py-2 text-sm font-medium rounded-md
-           transition-colors duration-150;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: #555555;
+    border: 0.5px solid #D0D0D0;
+    padding: 6px 14px;
+    font-family: Calibri, var(--font-lato), Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 150ms, border-color 150ms;
+    text-decoration: none;
   }
-
-  .btn-accent {
-    @apply inline-flex items-center justify-center
-           bg-accent text-white hover:bg-accent-dim
-           px-4 py-2 text-sm font-medium rounded-md
-           transition-colors duration-150;
+  .btn-secondary:hover {
+    background: #FAFAFA;
+    border-color: #909090;
   }
 
   /* ── Cards ───────────────────────────────────────── */
   .card {
-    @apply bg-white border border-surface-200 rounded-lg shadow-sm
-           transition-shadow duration-150;
+    background: #FAFAFA;
+    border: 0.5px solid #D0D0D0;
+    border-radius: 6px;
   }
 
-  .card:hover {
-    @apply shadow-md;
+  /* Card with 3px teal accent bar on top */
+  .card-accented {
+    background: #FAFAFA;
+    border: 0.5px solid #D0D0D0;
+    border-radius: 6px;
+    border-top: 3px solid #0F6E56;
   }
 
   /* ── Forms ───────────────────────────────────────── */
   .input {
-    @apply block w-full px-3 py-2 bg-white
-           border border-surface-200 rounded-md
-           text-surface-900 placeholder:text-surface-400
-           focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent
-           transition-colors duration-150;
-    font-size: 0.875rem;
+    display: block;
+    width: 100%;
+    padding: 6px 10px;
+    background: #FFFFFF;
+    border: 0.5px solid #D0D0D0;
+    border-radius: 4px;
+    color: #1A1A1A;
+    font-family: Calibri, var(--font-lato), Arial, sans-serif;
+    font-size: 12px;
+    transition: border-color 150ms;
+    outline: none;
+  }
+  .input::placeholder {
+    color: #909090;
+  }
+  .input:focus {
+    border-color: #0F6E56;
+    box-shadow: 0 0 0 2px #E1F5EE;
   }
 
   .form-label {
-    @apply block text-xs font-medium text-surface-500 mb-1.5 uppercase tracking-wide;
+    display: block;
+    font-family: Calibri, var(--font-lato), Arial, sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #909090;
+    margin-bottom: 6px;
   }
 
   .form-error {
-    @apply mt-1.5 text-xs text-red-600;
+    margin-top: 4px;
+    font-size: 11px;
+    color: #A32D2D;
   }
 
   /* ── Alerts ──────────────────────────────────────── */
   .alert-error {
-    @apply bg-red-50 border border-red-200 text-red-700
-           px-4 py-3 rounded-md text-sm;
+    background: #FCEBEB;
+    border: 0.5px solid #A32D2D;
+    color: #A32D2D;
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-size: 12px;
   }
 
-  /* ── Section labels ──────────────────────────────── */
+  /* ── Section / eyebrow labels ────────────────────── */
   .section-label {
-    @apply text-xs font-medium text-accent uppercase tracking-widest-plus mb-2 block;
+    display: block;
+    font-family: Calibri, var(--font-lato), Arial, sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #0F6E56;
+    margin-bottom: 6px;
+  }
+
+  /* Neutral uppercase label (no teal) */
+  .field-label {
+    display: block;
+    font-family: Calibri, var(--font-lato), Arial, sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #909090;
+    margin-bottom: 4px;
   }
 
   .lead-text {
-    @apply text-base text-surface-500 leading-relaxed;
+    font-family: Calibri, var(--font-lato), Arial, sans-serif;
+    font-size: 13px;
+    color: #555555;
+    line-height: 1.65;
+  }
+
+  /* ── Dividers ────────────────────────────────────── */
+  .rule {
+    border: none;
+    border-top: 1px solid #E8E8E8;
+  }
+
+  /* ── Pills / tags ────────────────────────────────── */
+  .pill {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 20px;
+    font-family: Calibri, var(--font-lato), Arial, sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+  }
+  .pill-accent {
+    background: #9FE1CB;
+    color: #04342C;
+  }
+  .pill-wash {
+    background: #E1F5EE;
+    color: #00695C;
+    border: 0.5px solid #0F6E56;
+  }
+  .pill-neutral {
+    background: #EFEFEF;
+    color: #555555;
+  }
+  .pill-warning {
+    background: #FCEBEB;
+    color: #A32D2D;
   }
 }
 
 /* Scrollbar */
-::-webkit-scrollbar       { width: 6px; }
-::-webkit-scrollbar-track { @apply bg-surface-100; }
-::-webkit-scrollbar-thumb { @apply bg-surface-300 rounded-full; }
-::-webkit-scrollbar-thumb:hover { @apply bg-surface-400; }
+::-webkit-scrollbar       { width: 5px; }
+::-webkit-scrollbar-track { background: #FAFAFA; }
+::-webkit-scrollbar-thumb { background: #D0D0D0; border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: #909090; }

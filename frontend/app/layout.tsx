@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Lato, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/Navbar";
 import { AuthBootstrap } from "@/components/AuthBootstrap";
 
-const inter = Inter({
+const lato = Lato({
+  weight: ["400", "700"],
   subsets: ["latin"],
-  variable: "--font-inter",
+  variable: "--font-lato",
   display: "swap",
 });
 
@@ -30,7 +31,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
+    <html lang="en" className={`${lato.variable} ${jetbrainsMono.variable}`}>
       <body>
         <AuthBootstrap />
         <Navbar />
