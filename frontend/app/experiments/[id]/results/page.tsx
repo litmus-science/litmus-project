@@ -256,6 +256,8 @@ export default function ResultsPage() {
     );
   }
 
+  if (!results) return null;
+
   return (
     <>
       <ExperimentProgressRail experimentId={experimentId} currentStep="results" />

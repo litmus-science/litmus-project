@@ -588,6 +588,8 @@ export interface LabMatch {
 }
 
 export interface RoutingResult {
+  experiment_id: string;
+  experiment_type: string;
   top_matches: LabMatch[];
   all_matches_count: number;
   filtered_out: Record<string, string[]>;
