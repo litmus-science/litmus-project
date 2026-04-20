@@ -20,8 +20,8 @@ EXPERIMENTS = [
     # ─── Program 1: GAL-5 Series ────────────────────────────────────────────
     {
         "id": new_id(),
-        "status": "completed",
-        "payment_status": "released",
+        "status": "COMPLETED",
+        "payment_status": "RELEASED",
         "created_at": ago(28),
         "updated_at": ago(8),
         "completed_at": ago(8),
@@ -79,8 +79,8 @@ EXPERIMENTS = [
     },
     {
         "id": new_id(),
-        "status": "in_progress",
-        "payment_status": "escrowed",
+        "status": "IN_PROGRESS",
+        "payment_status": "ESCROWED",
         "created_at": ago(14),
         "updated_at": ago(2),
         "experiment_type": "enzyme_inhibition",
@@ -103,8 +103,8 @@ EXPERIMENTS = [
     },
     {
         "id": new_id(),
-        "status": "open",
-        "payment_status": "escrowed",
+        "status": "OPEN",
+        "payment_status": "ESCROWED",
         "created_at": ago(10),
         "updated_at": ago(5),
         "experiment_type": "cell_viability",
@@ -127,8 +127,8 @@ EXPERIMENTS = [
     },
     {
         "id": new_id(),
-        "status": "pending_review",
-        "payment_status": "pending",
+        "status": "PENDING_REVIEW",
+        "payment_status": "PENDING",
         "created_at": ago(3),
         "updated_at": ago(3),
         "experiment_type": "custom",
@@ -153,8 +153,8 @@ EXPERIMENTS = [
     # ─── Program 2: LIT-2847 Kinase ──────────────────────────────────────────
     {
         "id": new_id(),
-        "status": "open",
-        "payment_status": "escrowed",
+        "status": "OPEN",
+        "payment_status": "ESCROWED",
         "created_at": ago(12),
         "updated_at": ago(6),
         "experiment_type": "cell_viability",
@@ -177,8 +177,8 @@ EXPERIMENTS = [
     },
     {
         "id": new_id(),
-        "status": "open",
-        "payment_status": "escrowed",
+        "status": "OPEN",
+        "payment_status": "ESCROWED",
         "created_at": ago(12),
         "updated_at": ago(6),
         "experiment_type": "cell_viability",
@@ -201,8 +201,8 @@ EXPERIMENTS = [
     },
     {
         "id": new_id(),
-        "status": "pending_review",
-        "payment_status": "pending",
+        "status": "PENDING_REVIEW",
+        "payment_status": "PENDING",
         "created_at": ago(4),
         "updated_at": ago(4),
         "experiment_type": "qpcr_expression",
@@ -227,8 +227,8 @@ EXPERIMENTS = [
     # ─── Program 3: ZL-9 Antimicrobial ───────────────────────────────────────
     {
         "id": new_id(),
-        "status": "open",
-        "payment_status": "escrowed",
+        "status": "OPEN",
+        "payment_status": "ESCROWED",
         "created_at": ago(9),
         "updated_at": ago(4),
         "experiment_type": "mic_mbc",
@@ -251,8 +251,8 @@ EXPERIMENTS = [
     },
     {
         "id": new_id(),
-        "status": "pending_review",
-        "payment_status": "pending",
+        "status": "PENDING_REVIEW",
+        "payment_status": "PENDING",
         "created_at": ago(5),
         "updated_at": ago(5),
         "experiment_type": "zone_of_inhibition",
@@ -275,8 +275,8 @@ EXPERIMENTS = [
     },
     {
         "id": new_id(),
-        "status": "draft",
-        "payment_status": "pending",
+        "status": "DRAFT",
+        "payment_status": "PENDING",
         "created_at": ago(1),
         "updated_at": ago(1),
         "experiment_type": "custom",
