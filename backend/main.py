@@ -434,7 +434,7 @@ def validate_intake(intake: JsonObject) -> schemas.ValidationResult:
         "CUSTOM": "custom_protocol",
     }
     required_section = exp_type_to_section.get(exp_type) if exp_type else None
-    if required_section and not intake.get(required_section):
+    if required_section and intake.get(required_section) is None:
         errors.append(
             schemas.ValidationError(
                 path=required_section,
@@ -763,7 +763,7 @@ async def create_experiment(
     # Create experiment
     experiment = ExperimentModel(
         requester_id=current_user.id,
-        status=DBExperimentStatus.PENDING_REVIEW,
+        status=DBExperimentStatus.DRAFT,
         specification=spec,
         experiment_type=_as_str(spec.get("experiment_type")),
         estimated_cost_usd=estimate.estimated_cost_usd.typical,

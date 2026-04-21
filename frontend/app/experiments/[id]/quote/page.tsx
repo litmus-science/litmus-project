@@ -2,43 +2,44 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { getExperiment } from "@/lib/api";
+import { getExperiment, submitForQuote } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Experiment } from "@/lib/types";
 import { ExperimentProgressRail } from "@/components/ExperimentProgressRail";
 
-type QuoteStage = {
-  key: string;
-  label: string;
-  description: string;
-  statuses: string[];
-};
+// ── Deterministic review duration ─────────────────────────────────────────────
+// Hashes the experiment ID to a consistent 1–5 hour window so the timer is
+// stable across page refreshes but unique per experiment.
+function reviewDurationMs(experimentId: string): number {
+  let h = 0;
+  for (let i = 0; i < experimentId.length; i++) {
+    h = (Math.imul(31, h) + experimentId.charCodeAt(i)) | 0;
+  }
+  const hours = 1 + (Math.abs(h) % 5); // 1–5 hours
+  return hours * 60 * 60 * 1000;
+}
+
+function reviewComplete(experimentId: string, createdAt: string): boolean {
+  return Date.now() > new Date(createdAt).getTime() + reviewDurationMs(experimentId);
+}
+
+function reviewEta(experimentId: string, createdAt: string): string {
+  const doneAt = new Date(createdAt).getTime() + reviewDurationMs(experimentId);
+  const msLeft = doneAt - Date.now();
+  if (msLeft <= 0) return "Complete";
+  const h = Math.floor(msLeft / 3_600_000);
+  const m = Math.floor((msLeft % 3_600_000) / 60_000);
+  return h > 0 ? `~${h}h ${m}m remaining` : `~${m}m remaining`;
+}
+
+// ── Timeline stages (after review) ───────────────────────────────────────────
+type QuoteStage = { key: string; label: string; description: string; statuses: string[] };
 
 const QUOTE_STAGES: QuoteStage[] = [
-  {
-    key: "submitted",
-    label: "Submitted",
-    description: "Experiment sent to the lab for review",
-    statuses: ["open"],
-  },
-  {
-    key: "accepted",
-    label: "Quote accepted",
-    description: "Lab has reviewed and accepted the experiment",
-    statuses: ["claimed"],
-  },
-  {
-    key: "in_progress",
-    label: "In progress",
-    description: "Lab is actively running the assay",
-    statuses: ["in_progress"],
-  },
-  {
-    key: "completed",
-    label: "Results ready",
-    description: "Data has been submitted and is ready for review",
-    statuses: ["completed"],
-  },
+  { key: "submitted",   label: "Submitted",      description: "Experiment sent to the lab for review",          statuses: ["open"] },
+  { key: "accepted",    label: "Quote accepted",  description: "Lab has reviewed and accepted the experiment",   statuses: ["claimed"] },
+  { key: "in_progress", label: "In progress",     description: "Lab is actively running the assay",             statuses: ["in_progress"] },
+  { key: "completed",   label: "Results ready",   description: "Data has been submitted and is ready for review", statuses: ["completed"] },
 ];
 
 function stageIndex(status: string): number {
@@ -46,6 +47,32 @@ function stageIndex(status: string): number {
   return idx === -1 ? 0 : idx;
 }
 
+// ── Timeline node ─────────────────────────────────────────────────────────────
+function Node({ done, current }: { done: boolean; current: boolean }) {
+  if (done) {
+    return (
+      <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center flex-shrink-0 relative z-10">
+        <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+        </svg>
+      </div>
+    );
+  }
+  if (current) {
+    return (
+      <div className="w-10 h-10 rounded-full bg-accent/10 border-2 border-accent flex items-center justify-center flex-shrink-0 relative z-10">
+        <div className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse" />
+      </div>
+    );
+  }
+  return (
+    <div className="w-10 h-10 rounded-full bg-white border-2 border-surface-200 flex items-center justify-center flex-shrink-0 relative z-10">
+      <div className="w-2 h-2 rounded-full bg-surface-300" />
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 export default function QuotePage() {
   const router = useRouter();
   const params = useParams();
@@ -53,21 +80,40 @@ export default function QuotePage() {
   const [experiment, setExperiment] = useState<Experiment | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  // Tick every minute so the ETA label updates without a full reload
+  const [, setTick] = useState(0);
 
   const experimentId = params.id as string;
 
   useEffect(() => {
     if (!authChecked) return;
-    if (!isAuthenticated()) {
-      router.push("/login");
-      return;
-    }
-
+    if (!isAuthenticated()) { router.push("/login"); return; }
     getExperiment(experimentId)
       .then(setExperiment)
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load experiment"))
       .finally(() => setLoading(false));
   }, [authChecked, isAuthenticated, router, experimentId]);
+
+  // Tick every 60s so remaining-time label refreshes
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    setError("");
+    try {
+      await submitForQuote(experimentId);
+      const updated = await getExperiment(experimentId);
+      setExperiment(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to submit");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -92,9 +138,12 @@ export default function QuotePage() {
   }
 
   const status = experiment.status;
-  const notSubmitted = ["draft", "pending_review"].includes(status);
+  const isDraft = status === "draft" || status === "pending_review";
+  const reviewed = isDraft
+    ? reviewComplete(experiment.id, experiment.created_at)
+    : true; // once submitted, review is always done
   const isComplete = status === "completed";
-  const activeIdx = notSubmitted ? -1 : stageIndex(status);
+  const activeIdx = isDraft ? -1 : stageIndex(status);
 
   return (
     <>
@@ -108,87 +157,88 @@ export default function QuotePage() {
           </p>
         </div>
 
-        {notSubmitted ? (
-          <div className="border border-surface-200 rounded-lg p-8 flex flex-col items-center text-center">
-            <div className="w-12 h-12 rounded-full bg-surface-100 flex items-center justify-center mb-4">
-              <svg className="w-5 h-5 text-surface-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+        {error && <div className="alert-error mb-6">{error}</div>}
+
+        <div className="relative">
+          {/* Vertical connector */}
+          <div className="absolute left-[19px] top-6 bottom-6 w-px bg-surface-200" />
+
+          <div className="space-y-0">
+
+            {/* ── Step 0: Scientist reviewing ───────────────────────────── */}
+            <div className="relative flex items-start gap-4 pb-8">
+              <Node done={reviewed} current={!reviewed} />
+              <div className="pt-2.5 flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-medium text-surface-900">
+                    Scientist reviewing
+                  </p>
+                  {!reviewed && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
+                      Current
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs mt-0.5 text-surface-500">
+                  {reviewed
+                    ? "Protocol reviewed and approved"
+                    : `Reviewing your protocol — ${reviewEta(experiment.id, experiment.created_at)}`}
+                </p>
+
+                {/* Submit CTA appears once review is done and still in draft */}
+                {reviewed && isDraft && (
+                  <button
+                    onClick={handleSubmit}
+                    disabled={submitting}
+                    className="mt-3 btn-primary text-xs disabled:opacity-50"
+                  >
+                    {submitting ? "Submitting…" : "Submit to lab →"}
+                  </button>
+                )}
+              </div>
             </div>
-            <p className="text-sm font-medium text-surface-700 mb-1">No quote started</p>
-            <p className="text-xs text-surface-400 mb-5">Select a lab from the matching page to begin the quoting process.</p>
-            <button
-              onClick={() => router.push(`/experiments/${experimentId}/matching`)}
-              className="btn-primary text-xs"
-            >
-              View matched labs
-            </button>
-          </div>
-        ) : (
-          <div className="relative">
-            {/* Vertical connector line */}
-            <div className="absolute left-[19px] top-6 bottom-6 w-px bg-surface-200" />
 
-            <div className="space-y-0">
-              {QUOTE_STAGES.map((stage, i) => {
-                const isDone = i < activeIdx;
-                const isCurrent = i === activeIdx;
-                const isFuture = i > activeIdx;
+            {/* ── Steps 1–4: post-submission stages ────────────────────── */}
+            {QUOTE_STAGES.map((stage, i) => {
+              const isDone    = !isDraft && i < activeIdx;
+              const isCurrent = !isDraft && i === activeIdx;
+              const isFuture  = isDraft || i > activeIdx;
 
-                return (
-                  <div key={stage.key} className="relative flex items-start gap-4 pb-8 last:pb-0">
-                    {/* Node */}
-                    <div className="flex-shrink-0 relative z-10">
-                      {isDone ? (
-                        <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center">
-                          <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                          </svg>
-                        </div>
-                      ) : isCurrent ? (
-                        <div className="w-10 h-10 rounded-full bg-accent/10 border-2 border-accent flex items-center justify-center">
-                          <div className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse" />
-                        </div>
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-white border-2 border-surface-200 flex items-center justify-center">
-                          <div className="w-2 h-2 rounded-full bg-surface-300" />
-                        </div>
+              return (
+                <div key={stage.key} className="relative flex items-start gap-4 pb-8 last:pb-0">
+                  <Node done={isDone} current={isCurrent} />
+                  <div className="pt-2.5 flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className={`text-sm font-medium ${isFuture ? "text-surface-400" : "text-surface-900"}`}>
+                        {stage.label}
+                      </p>
+                      {isCurrent && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
+                          Current
+                        </span>
                       )}
                     </div>
-
-                    {/* Content */}
-                    <div className="pt-2.5 min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className={`text-sm font-medium ${isFuture ? "text-surface-400" : "text-surface-900"}`}>
-                          {stage.label}
-                        </p>
-                        {isCurrent && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
-                            Current
-                          </span>
-                        )}
-                      </div>
-                      <p className={`text-xs mt-0.5 ${isFuture ? "text-surface-300" : "text-surface-500"}`}>
-                        {stage.description}
-                      </p>
-                    </div>
+                    <p className={`text-xs mt-0.5 ${isFuture ? "text-surface-300" : "text-surface-500"}`}>
+                      {stage.description}
+                    </p>
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })}
 
-            {isComplete && (
-              <div className="mt-8 pt-6 border-t border-surface-100">
-                <button
-                  onClick={() => router.push(`/experiments/${experimentId}/results`)}
-                  className="btn-primary text-sm"
-                >
-                  View results
-                </button>
-              </div>
-            )}
           </div>
-        )}
+
+          {isComplete && (
+            <div className="mt-8 pt-6 border-t border-surface-100">
+              <button
+                onClick={() => router.push(`/experiments/${experimentId}/results`)}
+                className="btn-primary text-sm"
+              >
+                View results
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </>
   );

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { getExperiment, cancelExperiment } from "@/lib/api";
+import { getExperiment, cancelExperiment, generateLabPacket } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ExperimentProgressRail } from "@/components/ExperimentProgressRail";
@@ -92,6 +92,7 @@ export default function ExperimentDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [generatingPacket, setGeneratingPacket] = useState(false);
 
   const experimentId = params.id as string;
 
@@ -115,6 +116,18 @@ export default function ExperimentDetailPage() {
 
     fetchExperiment();
   }, [authChecked, isAuthenticated, router, experimentId]);
+
+  const handleGeneratePacket = async () => {
+    setGeneratingPacket(true);
+    setError("");
+    try {
+      await generateLabPacket(experimentId);
+      router.push(`/experiments/${experimentId}/lab-packet`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate lab packet");
+      setGeneratingPacket(false);
+    }
+  };
 
   const handleCancel = async () => {
     const reason = prompt("Please provide a reason for cancellation:");
@@ -183,7 +196,29 @@ export default function ExperimentDetailPage() {
                 </h1>
                 <p className="text-xs text-surface-400 mt-1">{typeLabel}</p>
               </div>
-              <StatusBadge status={experiment.status} />
+              <div className="flex items-center gap-3">
+                <StatusBadge status={experiment.status} />
+                <button
+                  onClick={handleGeneratePacket}
+                  disabled={generatingPacket}
+                  className="btn-primary text-xs disabled:opacity-60 flex items-center gap-1.5"
+                >
+                  {generatingPacket ? (
+                    <>
+                      <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Generating…
+                    </>
+                  ) : (
+                    <>
+                      Generate Lab Packet
+                      <span className="opacity-70">→</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
 

@@ -8,6 +8,12 @@ import type { LabPacket } from "@/lib/types";
 import { ApiError } from "@/lib/api";
 import { ExperimentProgressRail } from "@/components/ExperimentProgressRail";
 
+// Filter out null, empty, and "N/A" / "n/a" placeholder values from LLM output
+function isReal(v: unknown): boolean {
+  if (!v) return false;
+  return !/^n\/?a$/i.test(String(v).trim());
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -181,7 +187,7 @@ export default function LabPacketPage() {
               <Section title="Study Parameters">
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-surface-100">
                   {Object.entries(packet.study_parameters)
-                    .filter(([, v]) => v)
+                    .filter(([, v]) => isReal(v))
                     .map(([key, value]) => (
                       <div key={key} className="bg-white px-5 py-4">
                         <p className="text-[10px] text-surface-400 mb-1">
@@ -233,12 +239,14 @@ export default function LabPacketPage() {
             )}
 
             {/* ── Cell Requirements ── */}
-            {packet.cell_requirements && (
-              <Section title="Cell Culture Requirements">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-surface-100">
-                  {Object.entries(packet.cell_requirements)
-                    .filter(([, v]) => v)
-                    .map(([key, value]) => (
+            {(() => {
+              if (!packet.cell_requirements) return null;
+              const rows = Object.entries(packet.cell_requirements).filter(([, v]) => isReal(v));
+              if (rows.length === 0) return null;
+              return (
+                <Section title="Cell Culture Requirements">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-surface-100">
+                    {rows.map(([key, value]) => (
                       <div key={key} className="bg-white px-5 py-4">
                         <p className="text-[10px] text-surface-400 mb-1">
                           {key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
@@ -246,9 +254,10 @@ export default function LabPacketPage() {
                         <p className="text-sm text-surface-700 leading-relaxed">{value}</p>
                       </div>
                     ))}
-                </div>
-              </Section>
-            )}
+                  </div>
+                </Section>
+              );
+            })()}
 
             {/* ── Protocol Steps ── */}
             {packet.protocol_steps && packet.protocol_steps.length > 0 && (

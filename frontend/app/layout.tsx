@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-import { Navbar } from "@/components/Navbar";
+import { ConditionalNavbar } from "@/components/ConditionalNavbar";
 import { AuthBootstrap } from "@/components/AuthBootstrap";
 
 const inter = Inter({
@@ -33,7 +33,7 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <body>
         <AuthBootstrap />
-        <Navbar />
+        <ConditionalNavbar />
         <main className="min-h-screen">{children}</main>
       </body>
     </html>

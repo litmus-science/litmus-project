@@ -62,23 +62,39 @@ export const isExperimentTypeValue = (
   Object.prototype.hasOwnProperty.call(experimentTypeMap, value);
 
 export type ExperimentForm = {
+  // Section 1 — Program context
+  program: string;
+  therapeutic_area: string;
+  target_compound: string;
+  // Section 2 — Experiment
   experiment_type: ExperimentTypeValue | "";
   title: string;
   hypothesis_statement: string;
   hypothesis_null: string;
+  // Section 3 — Requirements
   budget_max_usd: number;
+  turnaround_weeks: string;
   bsl_level: string;
   privacy: string;
   notes: string;
 };
 
-export type ExperimentSample = Omit<ExperimentForm, "experiment_type"> & {
+export type ExperimentSample = Omit<
+  ExperimentForm,
+  "experiment_type" | "program" | "therapeutic_area" | "target_compound" | "turnaround_weeks"
+> & {
   experiment_type: ExperimentTypeValue;
+  program?: string;
+  therapeutic_area?: string;
+  target_compound?: string;
+  turnaround_weeks?: string;
 };
 
 export const sampleExperiments: ExperimentSample[] = [
   {
     experiment_type: "sanger",
+    program: "Vector Engineering",
+    therapeutic_area: "Synthetic Biology",
     title: "Bxb1 integrase-mediated attL/attR junction verification",
     hypothesis_statement:
       "Bxb1-mediated integration at the AAVS1 safe harbor locus produces correct attL and attR junction sequences confirming precise transgene insertion",
@@ -92,6 +108,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "qpcr",
+    program: "LIT-2847 Kinase Program",
+    therapeutic_area: "Oncology (NSCLC)",
     title: "GAPDH knockdown efficiency measurement in HeLa cells",
     hypothesis_statement:
       "siRNA treatment reduces GAPDH mRNA expression by at least 70% compared to scrambled control at 48 hours post-transfection",
@@ -105,6 +123,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "qpcr",
+    program: "LIT-2847 Kinase Program",
+    therapeutic_area: "Oncology (NSCLC)",
     title: "IL-6 expression after LPS stimulation in THP-1 macrophages",
     hypothesis_statement:
       "LPS stimulation (100ng/mL) increases IL-6 mRNA expression by at least 10-fold compared to unstimulated controls at 4 hours",
@@ -118,6 +138,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "qpcr",
+    program: "VIR-44 Antiviral",
+    therapeutic_area: "Infectious Disease",
     title: "Viral load quantification in patient serum samples",
     hypothesis_statement:
       "The qPCR assay can detect and quantify viral RNA copies with a lower limit of detection of 100 copies/mL",
@@ -131,6 +153,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "cell_viability",
+    program: "LIT-2847 Kinase Program",
+    therapeutic_area: "Oncology (NSCLC)",
     title: "Doxorubicin IC50 determination in MCF-7 breast cancer cells",
     hypothesis_statement:
       "Doxorubicin exhibits cytotoxicity with an IC50 between 0.1-10 uM in MCF-7 cells after 72-hour exposure",
@@ -144,8 +168,9 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "cell_viability",
-    title:
-      "Novel kinase inhibitor compound screening in A549 lung cancer cells",
+    program: "LIT-2847 Kinase Program",
+    therapeutic_area: "Oncology (NSCLC)",
+    title: "Novel kinase inhibitor compound screening in A549 lung cancer cells",
     hypothesis_statement:
       "Compound LIT-2847 shows selective cytotoxicity with IC50 < 5 uM while sparing normal lung fibroblasts (IC50 > 50 uM)",
     hypothesis_null:
@@ -158,8 +183,9 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "cell_viability",
-    title:
-      "Combination therapy synergy assessment - Cisplatin with PARP inhibitor",
+    program: "LIT-2847 Kinase Program",
+    therapeutic_area: "Oncology (NSCLC)",
+    title: "Combination therapy synergy assessment - Cisplatin with PARP inhibitor",
     hypothesis_statement:
       "The combination of cisplatin and olaparib shows synergistic cytotoxicity (CI < 0.8) in BRCA1-mutant ovarian cancer cells",
     hypothesis_null:
@@ -172,6 +198,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "enzyme_inhibition",
+    program: "GAL-5 Series",
+    therapeutic_area: "Alzheimer's & Neurodegeneration",
     title: "Acetylcholinesterase inhibition by galantamine derivatives",
     hypothesis_statement:
       "Novel galantamine analog GAL-5 inhibits human AChE with IC50 < 1 uM comparable to or better than parent compound",
@@ -185,6 +213,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "enzyme_inhibition",
+    program: "GAL-5 Series",
+    therapeutic_area: "Alzheimer's & Neurodegeneration",
     title: "HDAC6 selective inhibitor characterization",
     hypothesis_statement:
       "Compound HD-103 selectively inhibits HDAC6 (IC50 < 100 nM) with >50-fold selectivity over HDAC1 and HDAC3",
@@ -198,6 +228,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "enzyme_inhibition",
+    program: "GAL-5 Series",
+    therapeutic_area: "Alzheimer's & Neurodegeneration",
     title: "Beta-secretase (BACE1) inhibition kinetics study",
     hypothesis_statement:
       "Peptide inhibitor BACE-P7 inhibits BACE1 with Ki < 50 nM through competitive inhibition mechanism",
@@ -211,6 +243,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "microbial_growth",
+    program: "ZL-9 Antimicrobial",
+    therapeutic_area: "Anti-infectives",
     title: "E. coli growth optimization in minimal media with glycerol",
     hypothesis_statement:
       "E. coli K-12 achieves maximum growth rate > 0.4/hr in M9 minimal media with 0.4% glycerol at 37C",
@@ -224,6 +258,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "microbial_growth",
+    program: "ZL-9 Antimicrobial",
+    therapeutic_area: "Anti-infectives",
     title: "Probiotic strain temperature tolerance profiling",
     hypothesis_statement:
       "Lactobacillus rhamnosus GG maintains >80% viability and growth capacity after 2-hour exposure to 45C",
@@ -237,6 +273,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "microbial_growth",
+    program: "ZL-9 Antimicrobial",
+    therapeutic_area: "Anti-infectives",
     title: "Antibiotic sub-MIC effects on biofilm formation",
     hypothesis_statement:
       "Sub-MIC concentrations (0.25x MIC) of azithromycin reduce P. aeruginosa biofilm formation by >50% compared to untreated",
@@ -250,6 +288,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "mic_mbc",
+    program: "ZL-9 Antimicrobial",
+    therapeutic_area: "Anti-infectives (MRSA)",
     title: "Vancomycin MIC determination for MRSA clinical isolates",
     hypothesis_statement:
       "Clinical MRSA isolates show vancomycin MICs within susceptible range (< 2 ug/mL) according to CLSI breakpoints",
@@ -263,6 +303,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "mic_mbc",
+    program: "ZL-9 Antimicrobial",
+    therapeutic_area: "Anti-infectives",
     title: "Novel antimicrobial peptide MIC/MBC profiling",
     hypothesis_statement:
       "Antimicrobial peptide AMP-12 shows bactericidal activity (MBC/MIC ratio <= 4) against E. coli and S. aureus",
@@ -276,6 +318,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "mic_mbc",
+    program: "ZL-9 Antimicrobial",
+    therapeutic_area: "Anti-infectives",
     title: "Antifungal susceptibility testing for Candida panel",
     hypothesis_statement:
       "Fluconazole maintains efficacy (MIC <= 2 ug/mL) against C. albicans clinical isolates from bloodstream infections",
@@ -289,6 +333,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "zone_of_inhibition",
+    program: "ZL-9 Antimicrobial",
+    therapeutic_area: "Anti-infectives",
     title: "Antibiotic disk diffusion susceptibility testing",
     hypothesis_statement:
       "E. coli clinical isolate is susceptible to ciprofloxacin ampicillin and gentamicin based on CLSI zone diameter breakpoints",
@@ -302,6 +348,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "zone_of_inhibition",
+    program: "ZL-9 Antimicrobial",
+    therapeutic_area: "Anti-infectives",
     title: "Plant extract antimicrobial screening",
     hypothesis_statement:
       "Oregano essential oil produces zone of inhibition > 15mm against S. aureus indicating significant antimicrobial activity",
@@ -315,6 +363,8 @@ export const sampleExperiments: ExperimentSample[] = [
   },
   {
     experiment_type: "zone_of_inhibition",
+    program: "ZL-9 Antimicrobial",
+    therapeutic_area: "Anti-infectives",
     title: "Bacteriocin activity spectrum determination",
     hypothesis_statement:
       "Bacteriocin from L. plantarum shows inhibition zones > 12mm against Listeria monocytogenes but not Gram-negative bacteria",
