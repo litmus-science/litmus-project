@@ -106,11 +106,9 @@ export default function QuotePage() {
     setError("");
     try {
       await submitForQuote(experimentId);
-      const updated = await getExperiment(experimentId);
-      setExperiment(updated);
+      router.push("/cro-review");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit");
-    } finally {
       setSubmitting(false);
     }
   };
