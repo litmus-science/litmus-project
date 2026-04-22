@@ -5,7 +5,6 @@ import { useRouter, useParams } from "next/navigation";
 import { matchLabs, submitForQuote } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { LabMatch, RoutingResult } from "@/lib/types";
-import { formatUsd } from "@/lib/format";
 import { ExperimentProgressRail } from "@/components/ExperimentProgressRail";
 
 function ScoreBar({ value, label }: { value: number; label: string }) {
@@ -59,19 +58,11 @@ function LabCard({ match, rank, onSubmit, submitting }: { match: LabMatch; rank:
         </div>
 
         {/* Quick stats */}
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-2 gap-1.5">
           <div className="bg-surface-50 rounded px-2 py-1.5 text-center">
             <p className="text-[10px] text-surface-400">TAT</p>
             <p className="text-xs font-semibold text-surface-800 mt-0.5">
               {match.estimated_tat_days ? `${match.estimated_tat_days}d` : "TBD"}
-            </p>
-          </div>
-          <div className="bg-surface-50 rounded px-2 py-1.5 text-center">
-            <p className="text-[10px] text-surface-400">Price</p>
-            <p className="text-xs font-semibold text-surface-800 mt-0.5">
-              {match.pricing_band_usd?.min != null
-                ? `${formatUsd(match.pricing_band_usd.min)}+`
-                : "—"}
             </p>
           </div>
           <div className="bg-surface-50 rounded px-2 py-1.5 text-center">
@@ -158,16 +149,6 @@ function LabCard({ match, rank, onSubmit, submitting }: { match: LabMatch; rank:
               ))}
             </div>
           )}
-
-          {/* Price range */}
-          <div>
-            <p className="text-[10px] tracking-widest-plus uppercase text-surface-400 mb-1">Price range</p>
-            <p className="text-sm font-semibold text-surface-900">
-              {match.pricing_band_usd?.min != null && match.pricing_band_usd?.max != null
-                ? `${formatUsd(match.pricing_band_usd.min)} – ${formatUsd(match.pricing_band_usd.max)}`
-                : "Request quote"}
-            </p>
-          </div>
 
           <button
             onClick={onSubmit}
