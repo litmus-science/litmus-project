@@ -10,7 +10,7 @@ interface ExperimentProgressRailProps {
 }
 
 const STEPS: { key: Step; label: string; href: (id: string) => string }[] = [
-  { key: "detail",     label: "Experiment", href: (id) => `/experiments/${id}` },
+  { key: "detail",     label: "Protocol", href: (id) => `/experiments/${id}` },
   { key: "lab-packet", label: "Lab Packet",  href: (id) => `/experiments/${id}/lab-packet` },
   { key: "matching",   label: "Send",        href: (id) => `/experiments/${id}/matching` },
   { key: "quote",      label: "Quote",       href: (id) => `/experiments/${id}/quote` },

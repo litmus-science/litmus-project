@@ -158,28 +158,6 @@ export default function LabPacketPage() {
                 <p className="text-sm text-surface-700 leading-relaxed">{packet.objective}</p>
               </div>
 
-              {/* Cost */}
-              {packet.estimated_direct_cost_usd && (
-                <div className="px-6 py-5">
-                  <h2 className="text-[10px] tracking-widest-plus uppercase text-surface-400 mb-2">
-                    Estimated Cost
-                  </h2>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-xl font-semibold text-surface-900">
-                      ${packet.estimated_direct_cost_usd.low.toLocaleString()}
-                    </span>
-                    <span className="text-surface-400 text-sm mx-1">&ndash;</span>
-                    <span className="text-xl font-semibold text-surface-900">
-                      ${packet.estimated_direct_cost_usd.high.toLocaleString()}
-                    </span>
-                  </div>
-                  {packet.estimated_direct_cost_usd.scope && (
-                    <p className="text-xs text-surface-400 mt-1.5 leading-relaxed">
-                      {packet.estimated_direct_cost_usd.scope}
-                    </p>
-                  )}
-                </div>
-              )}
             </div>
 
             {/* ── Study Parameters ── */}
