@@ -28,6 +28,7 @@ class ExperimentStatus(str, Enum):
     DRAFT = "draft"
     PENDING_REVIEW = "pending_review"
     OPEN = "open"
+    DESIGN_FINALIZED = "design_finalized"
     CLAIMED = "claimed"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"

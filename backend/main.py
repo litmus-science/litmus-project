@@ -1019,6 +1019,90 @@ async def submit_for_quote(
     )
 
 
+@app.post(
+    "/experiments/{experiment_id}/finalize-design",
+    response_model=schemas.Experiment,
+    tags=["Experiments"],
+)
+async def finalize_design(
+    experiment_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> schemas.Experiment:
+    """CRO approval: transition experiment to DESIGN_FINALIZED."""
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
+    experiment = result.scalar_one_or_none()
+
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if experiment.status not in [DBExperimentStatus.OPEN, DBExperimentStatus.PENDING_REVIEW]:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot finalize design from status '{experiment.status.value}'",
+        )
+
+    experiment.status = DBExperimentStatus.DESIGN_FINALIZED
+    experiment.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(experiment)
+
+    return schemas.Experiment(
+        id=experiment.id,
+        status=schemas.ExperimentStatus(experiment.status.value),
+        experiment_type=experiment.experiment_type or "",
+        specification=experiment.specification or {},
+        created_at=experiment.created_at,
+        updated_at=experiment.updated_at,
+        cost=schemas.CostInfo(
+            estimated_usd=experiment.estimated_cost_usd,
+            final_usd=experiment.final_cost_usd,
+            payment_status=schemas.PaymentStatus(experiment.payment_status.value) if experiment.payment_status else schemas.PaymentStatus.PENDING,
+        ),
+    )
+
+
+@app.post(
+    "/experiments/{experiment_id}/start",
+    response_model=schemas.Experiment,
+    tags=["Experiments"],
+)
+async def start_experiment(
+    experiment_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> schemas.Experiment:
+    """CRO acceptance: transition experiment from DESIGN_FINALIZED to IN_PROGRESS."""
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
+    experiment = result.scalar_one_or_none()
+
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if experiment.status != DBExperimentStatus.DESIGN_FINALIZED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot start from status '{experiment.status.value}'",
+        )
+
+    experiment.status = DBExperimentStatus.IN_PROGRESS
+    experiment.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(experiment)
+
+    return schemas.Experiment(
+        id=experiment.id,
+        status=schemas.ExperimentStatus(experiment.status.value),
+        experiment_type=experiment.experiment_type or "",
+        specification=experiment.specification or {},
+        created_at=experiment.created_at,
+        updated_at=experiment.updated_at,
+        cost=schemas.CostInfo(
+            estimated_usd=experiment.estimated_cost_usd,
+            final_usd=experiment.final_cost_usd,
+            payment_status=schemas.PaymentStatus(experiment.payment_status.value) if experiment.payment_status else schemas.PaymentStatus.PENDING,
+        ),
+    )
+
+
 @app.delete(
     "/experiments/{experiment_id}", response_model=schemas.CancelResponse, tags=["Experiments"]
 )

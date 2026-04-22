@@ -620,6 +620,18 @@ export async function submitForQuote(experimentId: string): Promise<Experiment> 
   });
 }
 
+export async function finalizeDesign(experimentId: string): Promise<Experiment> {
+  return request<Experiment>(`/experiments/${experimentId}/finalize-design`, {
+    method: "POST",
+  });
+}
+
+export async function startExecution(experimentId: string): Promise<Experiment> {
+  return request<Experiment>(`/experiments/${experimentId}/start`, {
+    method: "POST",
+  });
+}
+
 // Lab Matching
 export async function matchLabs(experimentId: string): Promise<RoutingResult> {
   return request<RoutingResult>(`/experiments/${experimentId}/matching`);

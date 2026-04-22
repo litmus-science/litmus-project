@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { getExperiment, submitForQuote } from "@/lib/api";
+import { getExperiment, submitForQuote, finalizeDesign } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Experiment } from "@/lib/types";
 import { ExperimentProgressRail } from "@/components/ExperimentProgressRail";
@@ -37,7 +37,7 @@ type QuoteStage = { key: string; label: string; description: string; statuses: s
 
 const QUOTE_STAGES: QuoteStage[] = [
   { key: "submitted",   label: "Submitted",      description: "Experiment sent to the lab for review",          statuses: ["open"] },
-  { key: "accepted",    label: "Quote accepted",  description: "Lab has reviewed and accepted the experiment",   statuses: ["claimed"] },
+  { key: "accepted",    label: "In review", description: "Lab has reviewed and accepted the experiment",   statuses: ["claimed", "design_finalized"] },
   { key: "in_progress", label: "In progress",     description: "Lab is actively running the assay",             statuses: ["in_progress"] },
   { key: "completed",   label: "Results ready",   description: "Data has been submitted and is ready for review", statuses: ["completed"] },
 ];
@@ -106,7 +106,8 @@ export default function QuotePage() {
     setError("");
     try {
       await submitForQuote(experimentId);
-      window.open("/cro-review", "_blank");
+      await finalizeDesign(experimentId);
+      window.open(`/cro-review/${experimentId}`, "_blank");
       router.push(`/experiments/${experimentId}/lab-packet`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit");

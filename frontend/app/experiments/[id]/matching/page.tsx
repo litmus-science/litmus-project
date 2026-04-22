@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { matchLabs, submitForQuote } from "@/lib/api";
+import { matchLabs, submitForQuote, finalizeDesign } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { LabMatch, RoutingResult } from "@/lib/types";
 import { ExperimentProgressRail } from "@/components/ExperimentProgressRail";
@@ -199,6 +199,8 @@ export default function LabMatchingPage() {
     setSubmittingLabId(labId);
     try {
       await submitForQuote(experimentId);
+      await finalizeDesign(experimentId);
+      window.open(`/cro-review/${experimentId}`, "_blank");
       router.push(`/experiments/${experimentId}/quote`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit for quote");

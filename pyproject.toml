@@ -10,6 +10,7 @@ authors = [
 ]
 
 dependencies = [
+    "argon2-cffi[backend]>=25.1.0",
     "pydantic>=2.0",
 ]
 

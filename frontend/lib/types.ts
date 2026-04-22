@@ -2,6 +2,7 @@ export type ExperimentStatus =
   | "draft"
   | "pending_review"
   | "open"
+  | "design_finalized"
   | "claimed"
   | "in_progress"
   | "completed"

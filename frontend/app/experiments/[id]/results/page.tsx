@@ -135,7 +135,7 @@ export default function ResultsPage() {
 
   const expStatus = experiment?.status ?? null;
   const notSubmitted = !results && !error && expStatus !== null && ["draft", "pending_review"].includes(expStatus);
-  const awaitingResults = !results && !error && expStatus !== null && ["open", "claimed", "in_progress"].includes(expStatus);
+  const awaitingResults = !results && !error && expStatus !== null && ["open", "claimed", "design_finalized", "in_progress"].includes(expStatus);
 
   if (notSubmitted) {
     return (
