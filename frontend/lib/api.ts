@@ -226,6 +226,39 @@ export async function cancelExperiment(
   );
 }
 
+// Activity log
+export type NoteKind = "note" | "call" | "email" | "agreement" | "file";
+
+export interface ActivityNote {
+  id: string;
+  kind: NoteKind;
+  content: string;
+  url: string | null;
+  attachments: { name: string; format: string; url: string }[];
+  author: string;
+  created_at: string;
+}
+
+export async function listNotes(experimentId: string): Promise<ActivityNote[]> {
+  const data = await request<{ notes: ActivityNote[] }>(`/experiments/${experimentId}/notes`);
+  return data.notes;
+}
+
+export async function createNote(
+  experimentId: string,
+  kind: NoteKind,
+  content: string,
+  url?: string,
+  files?: File[],
+): Promise<ActivityNote> {
+  const form = new FormData();
+  form.append("kind", kind);
+  form.append("content", content);
+  if (url) form.append("url", url);
+  for (const f of files ?? []) form.append("files", f);
+  return request<ActivityNote>(`/experiments/${experimentId}/notes`, { method: "POST", body: form });
+}
+
 // Results
 export async function uploadResults(
   experimentId: string,

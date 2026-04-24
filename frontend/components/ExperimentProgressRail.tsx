@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-type Step = "detail" | "lab-packet" | "matching" | "quote" | "results";
+type Step = "detail" | "lab-packet" | "matching" | "quote" | "results" | "activity";
 
 interface ExperimentProgressRailProps {
   experimentId: string;
@@ -15,6 +15,7 @@ const STEPS: { key: Step; label: string; href: (id: string) => string }[] = [
   { key: "lab-packet", label: "Review",     href: (id) => `/experiments/${id}/lab-packet` },
   { key: "quote",      label: "Execution",   href: (id) => `/experiments/${id}/quote` },
   { key: "results",    label: "Results",     href: (id) => `/experiments/${id}/results` },
+  { key: "activity",   label: "Activity",    href: (id) => `/experiments/${id}/activity` },
 ];
 
 export function ExperimentProgressRail({

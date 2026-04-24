@@ -550,6 +550,33 @@ class RfqPackage(Base):
     lab_packet: Mapped[LabPacket] = relationship("LabPacket", back_populates="rfq_package")
 
 
+class NoteKind(PyEnum):
+    NOTE = "note"
+    CALL = "call"
+    EMAIL = "email"
+    AGREEMENT = "agreement"
+    FILE = "file"
+
+
+class ExperimentNote(Base):
+    """Activity log entry attached to an experiment (calls, emails, agreements, notes)."""
+
+    __tablename__ = "experiment_notes"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
+    experiment_id: Mapped[str] = mapped_column(
+        String, ForeignKey("experiments.id"), nullable=False, index=True
+    )
+    author_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False)
+    kind: Mapped[NoteKind] = mapped_column(Enum(NoteKind), nullable=False, default=NoteKind.NOTE)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # Optional URL — Loom/Zoom recording, email thread, doc link, etc.
+    url: Mapped[str | None] = mapped_column(String)
+    # Uploaded files: [{name, url, format}]
+    attachments: Mapped[JsonArray | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 # Database setup - Use environment variable for production database
 DATABASE_URL = os.environ.get("LITMUS_DATABASE_URL", "sqlite+aiosqlite:///./litmus.db")
 

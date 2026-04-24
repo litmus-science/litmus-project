@@ -80,7 +80,9 @@ from backend.env import PROJECT_ROOT
 from backend.models import (
     CloudLabSubmission,
     Dispute,
+    ExperimentNote,
     ExperimentResult,
+    NoteKind as DBNoteKind,
     OperatorProfile,
     User,
     generate_uuid,
@@ -1306,6 +1308,108 @@ async def upload_experiment_results(
     await db.commit()
 
     return {"uploaded": len(saved), "files": saved}
+
+
+# ── Activity log ──────────────────────────────────────────────────────────────
+
+@app.post("/experiments/{experiment_id}/notes", tags=["Notes"])
+async def create_experiment_note(
+    experiment_id: str,
+    kind: str = Form("note"),
+    content: str = Form(...),
+    url: str = Form(""),
+    files: list[UploadFile] = File(default=[]),
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Add an activity log entry to an experiment (note, call, email, agreement)."""
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
+    experiment = result.scalar_one_or_none()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if experiment.requester_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    try:
+        note_kind = DBNoteKind(kind)
+    except ValueError:
+        note_kind = DBNoteKind.NOTE
+
+    # Save any attached files
+    attachments: list[JsonObject] = []
+    if files:
+        note_dir = UPLOAD_DIR / experiment_id / "notes"
+        note_dir.mkdir(parents=True, exist_ok=True)
+        for upload in files:
+            raw = await upload.read()
+            filename = upload.filename or f"attachment_{len(attachments)}"
+            (note_dir / filename).write_bytes(raw)
+            ext = Path(filename).suffix.lstrip(".").upper() or "FILE"
+            attachments.append({
+                "name": filename,
+                "format": ext,
+                "url": f"/uploads/{experiment_id}/notes/{filename}",
+            })
+
+    note = ExperimentNote(
+        experiment_id=experiment_id,
+        author_id=current_user.id,
+        kind=note_kind,
+        content=content,
+        url=url.strip() or None,
+        attachments=cast("list[JsonValue]", attachments) if attachments else None,
+    )
+    db.add(note)
+    await db.commit()
+    await db.refresh(note)
+
+    return {
+        "id": note.id,
+        "kind": note.kind.value,
+        "content": note.content,
+        "url": note.url,
+        "attachments": note.attachments or [],
+        "author": current_user.email,
+        "created_at": note.created_at.isoformat(),
+    }
+
+
+@app.get("/experiments/{experiment_id}/notes", tags=["Notes"])
+async def list_experiment_notes(
+    experiment_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """List all activity log entries for an experiment."""
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
+    experiment = result.scalar_one_or_none()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if experiment.requester_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    notes_result = await db.execute(
+        select(ExperimentNote, User.email)
+        .join(User, ExperimentNote.author_id == User.id)
+        .where(ExperimentNote.experiment_id == experiment_id)
+        .order_by(ExperimentNote.created_at.asc())
+    )
+    rows = notes_result.all()
+
+    return {
+        "notes": [
+            {
+                "id": note.id,
+                "kind": note.kind.value,
+                "content": note.content,
+                "url": note.url,
+                "attachments": note.attachments or [],
+                "author": email,
+                "created_at": note.created_at.isoformat(),
+            }
+            for note, email in rows
+        ]
+    }
 
 
 @app.post(
