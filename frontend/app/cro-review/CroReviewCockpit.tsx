@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { startExecution } from "@/lib/api";
 
@@ -58,6 +58,41 @@ interface StructuredAssumptions {
 }
 
 type ActionState = "idle" | "approved" | "changes" | "rejected" | "clarify";
+
+// ── Activity log types ────────────────────────────────────────────────────────
+
+type NoteKind = "note" | "call" | "email" | "agreement" | "file";
+
+interface LogEntry {
+  id: number;
+  kind: NoteKind;
+  content: string;
+  url: string;
+  author: string;
+  timestamp: string;
+}
+
+const KIND_META: Record<NoteKind, { label: string; color: string; icon: React.ReactNode }> = {
+  note:      { label: "Note",      color: "bg-surface-100 text-surface-600",   icon: "📝" },
+  call:      { label: "Call",      color: "bg-blue-50 text-blue-600",          icon: "📞" },
+  email:     { label: "Email",     color: "bg-violet-50 text-violet-600",      icon: "📧" },
+  agreement: { label: "Agreement", color: "bg-emerald-50 text-emerald-700",    icon: "✅" },
+  file:      { label: "File",      color: "bg-amber-50 text-amber-700",        icon: "📎" },
+};
+
+const KIND_OPTIONS: { value: NoteKind; label: string }[] = [
+  { value: "note",      label: "📝 Note" },
+  { value: "call",      label: "📞 Call" },
+  { value: "email",     label: "📧 Email" },
+  { value: "agreement", label: "✅ Agreement" },
+  { value: "file",      label: "📎 File" },
+];
+
+function formatTs(ts: string) {
+  const d = new Date(ts);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) +
+    " · " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
 
 // ── Mock computation ──────────────────────────────────────────────────────────
 
@@ -303,6 +338,32 @@ export default function CroReviewCockpit({ study }: { study: StudyContext }) {
     additionalNotes: "",
   });
   const [overridesOpen, setOverridesOpen] = useState(false);
+
+  // ── Activity log state ───────────────────────────────────────────────────────
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([
+    { id: 1, kind: "email", content: "Sent lab packet to Arctoris. Included full protocol, enzyme panel requirements, and timeline ask of 3 weeks.", url: "", author: "litmus@litmus.bio", timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
+    { id: 2, kind: "call",  content: "Intro call with Sarah @ Arctoris. They can run HDAC6 + panel but HDAC3/NCoR2 needs reorder (~7 days). Suggested starting Apr 28. Budget is tight — they need $1,840 minimum.", url: "https://loom.com/share/example", author: "arun@litmus.bio", timestamp: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() },
+  ]);
+  const [logKind, setLogKind]       = useState<NoteKind>("note");
+  const [logContent, setLogContent] = useState("");
+  const [logUrl, setLogUrl]         = useState("");
+  const logBottomRef                = useRef<HTMLDivElement>(null);
+
+  function addLogEntry() {
+    if (!logContent.trim()) return;
+    setLogEntries((prev) => [...prev, {
+      id: Date.now(),
+      kind: logKind,
+      content: logContent.trim(),
+      url: logUrl.trim(),
+      author: "you",
+      timestamp: new Date().toISOString(),
+    }]);
+    setLogContent("");
+    setLogUrl("");
+    setLogKind("note");
+    setTimeout(() => logBottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+  }
 
   // ── Decision state ───────────────────────────────────────────────────────────
   const [action, setAction] = useState<ActionState>("idle");
@@ -791,133 +852,120 @@ export default function CroReviewCockpit({ study }: { study: StudyContext }) {
           </div>
         </div>
 
-        {/* ════════════ RIGHT — FEASIBILITY OUTPUT (read-only) ════════════ */}
-        <div className="overflow-y-auto p-6 space-y-5 pb-32">
-          <div>
-            <h2 className="text-xs font-semibold text-surface-500 uppercase tracking-widest mb-4">
-              System Feasibility Output — Read Only
+        {/* ════════════ RIGHT — ACTIVITY LOG ════════════ */}
+        <div className="flex flex-col overflow-hidden">
+          <div className="px-6 pt-6 pb-3 flex-shrink-0">
+            <h2 className="text-xs font-semibold text-surface-500 uppercase tracking-widest">
+              Activity Log
             </h2>
+            <p className="text-[11px] text-surface-400 mt-0.5">Calls, emails, agreements, notes — captured here.</p>
+          </div>
 
-            {/* Section 1: Feasibility Verdict */}
-            <Card>
-              <CardHeader title="Feasibility Verdict" />
-              <div className="px-5 py-4">
-                <VerdictBadge verdict={feas.verdict} />
+          {/* Timeline — scrollable */}
+          <div className="flex-1 overflow-y-auto px-6 pb-4">
+            {logEntries.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-sm text-surface-400">No activity yet.</p>
               </div>
-            </Card>
-
-            {/* Section 2: Timeline Simulation */}
-            <Card className="mt-4">
-              <CardHeader title="Timeline Simulation" />
-              <div className="px-5 py-4">
-                <div className="space-y-2">
-                  {[
-                    ["Lab setup", `${feas.timeline.setup} day${feas.timeline.setup !== 1 ? "s" : ""}`],
-                    ["Assay execution", `${feas.timeline.execution} days`],
-                    ["Data analysis", `${feas.timeline.analysis} days`],
-                    ["Report writing", `${feas.timeline.reporting} days`],
-                  ].map(([phase, dur]) => (
-                    <div key={phase} className="flex items-center justify-between">
-                      <span className="text-xs text-surface-500">{phase}</span>
-                      <span className="text-xs font-medium text-surface-700">{dur}</span>
+            ) : (
+              <div>
+                {logEntries.map((entry, i) => {
+                  const meta = KIND_META[entry.kind];
+                  const isLast = i === logEntries.length - 1;
+                  return (
+                    <div key={entry.id} className="flex gap-3">
+                      {/* Spine */}
+                      <div className="flex flex-col items-center flex-shrink-0">
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-sm flex-shrink-0 ${meta.color}`}>
+                          {meta.icon}
+                        </div>
+                        {!isLast && <div className="w-px flex-1 bg-surface-100 mt-1" />}
+                      </div>
+                      {/* Body */}
+                      <div className={`min-w-0 ${isLast ? "pb-2" : "pb-5"}`}>
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${meta.color}`}>
+                            {meta.label}
+                          </span>
+                          <span className="text-[11px] text-surface-400">{formatTs(entry.timestamp)}</span>
+                          <span className="text-[11px] text-surface-400">· {entry.author}</span>
+                        </div>
+                        <p className="text-xs text-surface-700 leading-relaxed whitespace-pre-wrap">{entry.content}</p>
+                        {entry.url && (
+                          <a
+                            href={entry.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 mt-1.5 text-xs text-accent hover:text-accent-dim font-medium"
+                          >
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            View recording
+                          </a>
+                        )}
+                      </div>
                     </div>
-                  ))}
-                  <div className="pt-2 border-t border-surface-100 flex items-center justify-between">
-                    <span className="text-xs font-semibold text-surface-800">Total</span>
-                    <span className="text-xs font-bold text-accent">
-                      {feas.timeline.totalDays} business days ({feas.timeline.totalWeeks}w)
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="bg-surface-50 border border-surface-100 rounded-lg px-3 py-2.5">
-                    <p className="text-[10px] text-surface-400 uppercase tracking-wider mb-0.5">Earliest start</p>
-                    <p className="text-xs font-semibold text-surface-800">{feas.timeline.start}</p>
-                  </div>
-                  <div className="bg-surface-50 border border-surface-100 rounded-lg px-3 py-2.5">
-                    <p className="text-[10px] text-surface-400 uppercase tracking-wider mb-0.5">Est. delivery</p>
-                    <p className="text-xs font-semibold text-surface-800">{feas.timeline.delivery}</p>
-                  </div>
-                </div>
+                  );
+                })}
+                <div ref={logBottomRef} />
               </div>
-            </Card>
+            )}
+          </div>
 
-            {/* Section 3: Cost Breakdown */}
-            <Card className="mt-4">
-              <CardHeader title="Cost Breakdown" />
-              <div className="px-5 py-4">
-                <div className="space-y-2">
-                  {[
-                    ["Enzymes & biologics", feas.cost.enzymes],
-                    ["Reagents & consumables", feas.cost.reagents],
-                    ["Labour (est. hours)", feas.cost.labor],
-                    ["Instrument time", feas.cost.instrument],
-                    ["QC & reporting", feas.cost.qc],
-                  ].map(([item, cost]) => (
-                    <div key={item as string} className="flex items-center justify-between">
-                      <span className="text-xs text-surface-500">{item as string}</span>
-                      <span className="text-xs font-medium text-surface-700">${(cost as number).toLocaleString()}</span>
-                    </div>
-                  ))}
-                  <div className="pt-2 border-t border-surface-100 flex items-center justify-between">
-                    <span className="text-xs font-semibold text-surface-800">CRO estimate</span>
-                    <span className="text-xs font-bold text-surface-900">${feas.cost.total.toLocaleString()}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-surface-400">Sponsor budget</span>
-                    <span className="text-xs text-surface-500">${constraints.budget.toLocaleString()}</span>
-                  </div>
-                </div>
-                <div className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-lg border text-xs ${
-                  feas.cost.delta <= 0
-                    ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                    : "bg-amber-50 border-amber-200 text-amber-700"
-                }`}>
-                  {feas.cost.delta <= 0
-                    ? `✓ $${Math.abs(feas.cost.delta).toLocaleString()} under budget`
-                    : `⚠ +$${feas.cost.delta.toLocaleString()} over budget`}
-                </div>
-              </div>
-            </Card>
+          {/* Compose box — pinned to bottom of right panel */}
+          <div className="flex-shrink-0 border-t border-surface-200 px-5 py-4 space-y-3 bg-white">
+            {/* Kind selector */}
+            <div className="flex gap-1.5 flex-wrap">
+              {KIND_OPTIONS.map((o) => (
+                <button
+                  key={o.value}
+                  onClick={() => setLogKind(o.value)}
+                  className={`text-xs px-2.5 py-1 rounded-full font-medium transition-colors ${
+                    logKind === o.value
+                      ? "bg-accent text-white"
+                      : "text-surface-500 hover:text-surface-700 hover:bg-surface-100"
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
 
-            {/* Section 4: Risk Flags */}
-            <Card className="mt-4">
-              <CardHeader title="Risk Flags" />
-              <div className="px-5 py-4">
-                {feas.risks.length === 0 ? (
-                  <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5">
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                    </svg>
-                    No risk flags — all systems go
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {feas.risks.map((r, i) => (
-                      <RiskFlag key={i} level={r.level} message={r.message} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </Card>
+            <textarea
+              rows={2}
+              value={logContent}
+              onChange={(e) => setLogContent(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addLogEntry(); }}
+              placeholder={
+                logKind === "call"      ? "Who was on the call? What was discussed? Decisions made?" :
+                logKind === "email"     ? "Paste or summarise the email thread…" :
+                logKind === "agreement" ? "What was agreed? Price, timeline, scope…" :
+                logKind === "file"      ? "Describe the file…" : "Add a note…"
+              }
+              className="w-full text-xs text-surface-800 placeholder:text-surface-400 border border-surface-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+            />
 
-            {/* Section 5: Recommended Options */}
-            <Card className="mt-4">
-              <CardHeader title="Recommended Options" />
-              <div className="px-5 py-4 space-y-3">
-                {options.map((opt) => (
-                  <div key={opt.key} className={`border rounded-xl px-4 py-3 ${opt.color}`}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${opt.badge}`}>
-                        {opt.key}
-                      </span>
-                      <span className="text-xs font-semibold">{opt.label}</span>
-                    </div>
-                    <p className="text-xs opacity-80 leading-relaxed">{opt.description}</p>
-                  </div>
-                ))}
-              </div>
-            </Card>
+            {(logKind === "call" || logKind === "email") && (
+              <input
+                type="url"
+                value={logUrl}
+                onChange={(e) => setLogUrl(e.target.value)}
+                placeholder="Recording or link — optional (Loom, Zoom…)"
+                className="w-full text-xs border border-surface-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+              />
+            )}
+
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-surface-300">⌘ + Enter to log</span>
+              <button
+                onClick={addLogEntry}
+                disabled={!logContent.trim()}
+                className="btn-primary text-xs px-4 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Log
+              </button>
+            </div>
           </div>
         </div>
       </div>
