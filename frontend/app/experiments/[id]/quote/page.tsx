@@ -107,8 +107,7 @@ export default function QuotePage() {
     try {
       await submitForQuote(experimentId);
       await finalizeDesign(experimentId);
-      window.open(`/cro-review/${experimentId}`, "_blank");
-      router.push(`/experiments/${experimentId}/lab-packet`);
+      router.push(`/experiments/${experimentId}/review`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit");
       setSubmitting(false);

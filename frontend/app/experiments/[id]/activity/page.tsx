@@ -200,7 +200,7 @@ export default function ActivityPage() {
 
   return (
     <>
-      <ExperimentProgressRail experimentId={experimentId} currentStep="activity" />
+      <ExperimentProgressRail experimentId={experimentId} currentStep="review" />
 
       <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
