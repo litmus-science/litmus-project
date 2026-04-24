@@ -16,7 +16,12 @@ from datetime import datetime, timedelta
 from typing import cast
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile, status
+import hashlib
+import shutil
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -128,9 +133,13 @@ from backend.services.experiment_interpreter import get_experiment_interpreter
 from backend.types import JsonObject, JsonValue
 
 
+UPLOAD_DIR = Path(os.getenv("LITMUS_UPLOAD_DIR", str(PROJECT_ROOT / "uploads")))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize database on startup."""
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     await init_db()
     await seed_templates()
     yield
@@ -307,6 +316,10 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID"],
 )
+
+# Serve uploaded result files as static assets
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 
 # Helper functions
@@ -1224,6 +1237,75 @@ async def get_experiment_results(
         documentation=documentation,
         operator_notes=results.notes,
     )
+
+
+@app.post(
+    "/experiments/{experiment_id}/results/upload",
+    tags=["Results"],
+)
+async def upload_experiment_results(
+    experiment_id: str,
+    files: list[UploadFile] = File(...),
+    notes: str = Form(""),
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Upload result files for an experiment (PDF, Excel, CSV, images, etc.).
+    Marks the experiment as completed and stores file metadata."""
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
+    experiment = result.scalar_one_or_none()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if experiment.requester_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Save files to disk
+    exp_upload_dir = UPLOAD_DIR / experiment_id
+    exp_upload_dir.mkdir(parents=True, exist_ok=True)
+
+    saved: list[dict[str, str]] = []
+    for upload in files:
+        raw = await upload.read()
+        checksum = hashlib.sha256(raw).hexdigest()
+        filename = upload.filename or f"file_{len(saved)}"
+        dest = exp_upload_dir / filename
+        dest.write_bytes(raw)
+        ext = Path(filename).suffix.lstrip(".").upper() or "FILE"
+        saved.append({
+            "name": filename,
+            "format": ext,
+            "url": f"/uploads/{experiment_id}/{filename}",
+            "checksum_sha256": checksum,
+        })
+
+    # Create or update the ExperimentResult record
+    existing = await db.execute(
+        select(ExperimentResult).where(ExperimentResult.experiment_id == experiment_id)
+    )
+    result_record = existing.scalar_one_or_none()
+
+    if result_record:
+        prev = result_record.raw_data_files if isinstance(result_record.raw_data_files, list) else []
+        result_record.raw_data_files = cast("list[JsonObject]", prev) + cast("list[JsonObject]", saved)
+        if notes:
+            result_record.notes = notes
+    else:
+        result_record = ExperimentResult(
+            id=generate_uuid(),
+            experiment_id=experiment_id,
+            raw_data_files=cast("list[object]", saved),
+            notes=notes or None,
+            submitted_at=datetime.utcnow(),
+        )
+        db.add(result_record)
+
+    # Mark experiment as completed
+    experiment.status = DBExperimentStatus.COMPLETED
+    experiment.completed_at = datetime.utcnow()
+
+    await db.commit()
+
+    return {"uploaded": len(saved), "files": saved}
 
 
 @app.post(

@@ -227,6 +227,20 @@ export async function cancelExperiment(
 }
 
 // Results
+export async function uploadResults(
+  experimentId: string,
+  files: File[],
+  notes?: string,
+): Promise<{ uploaded: number; files: { name: string; format: string; url: string }[] }> {
+  const form = new FormData();
+  for (const file of files) form.append("files", file);
+  if (notes) form.append("notes", notes);
+  return request(`/experiments/${experimentId}/results/upload`, {
+    method: "POST",
+    body: form,
+  });
+}
+
 export async function getResults(
   experimentId: string,
 ): Promise<ExperimentResults> {
