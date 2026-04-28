@@ -51,6 +51,16 @@ const config: Config = {
       letterSpacing: {
         "widest-plus": "0.15em",
       },
+      keyframes: {
+        progress: {
+          "0%":   { width: "0%" },
+          "60%":  { width: "75%" },
+          "100%": { width: "100%" },
+        },
+      },
+      animation: {
+        progress: "progress 4.5s ease-in-out forwards",
+      },
     },
   },
   plugins: [],

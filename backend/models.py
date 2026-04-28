@@ -281,6 +281,10 @@ class Experiment(Base):
     webhook_url: Mapped[str | None] = mapped_column(String)
     notification_events: Mapped[JsonObject | JsonArray | None] = mapped_column(JSON)
 
+    # AgentMail inbox for capturing sponsor↔CRO correspondence
+    inbox_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    inbox_address: Mapped[str | None] = mapped_column(String, nullable=True)
+
     # Relationships
     requester: Mapped[User] = relationship(
         "User", back_populates="experiments", foreign_keys=[requester_id]
@@ -574,6 +578,8 @@ class ExperimentNote(Base):
     url: Mapped[str | None] = mapped_column(String)
     # Uploaded files: [{name, url, format}]
     attachments: Mapped[JsonArray | None] = mapped_column(JSON)
+    # AgentMail message_id — set on auto-ingested emails to prevent duplicate sync
+    external_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

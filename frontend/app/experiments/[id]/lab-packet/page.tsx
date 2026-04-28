@@ -1,132 +1,85 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { getExperiment, getLabPacket, startExecution } from "@/lib/api";
-import type { Experiment, LabPacket } from "@/lib/types";
+import { useRouter, useParams } from "next/navigation";
+import { getLabPacket, generateLabPacket, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import type { LabPacket } from "@/lib/types";
 import { ExperimentProgressRail } from "@/components/ExperimentProgressRail";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-type DecisionState = "idle" | "approved" | "changes" | "rejected";
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function getStr(obj: Record<string, unknown>, ...keys: string[]): string | null {
-  let cur: unknown = obj;
-  for (const k of keys) {
-    if (cur == null || typeof cur !== "object") return null;
-    cur = (cur as Record<string, unknown>)[k];
-  }
-  return typeof cur === "string" ? cur : null;
-}
-
-function getNum(obj: Record<string, unknown>, ...keys: string[]): number | null {
-  let cur: unknown = obj;
-  for (const k of keys) {
-    if (cur == null || typeof cur !== "object") return null;
-    cur = (cur as Record<string, unknown>)[k];
-  }
-  return typeof cur === "number" ? cur : null;
+// Filter out null, empty, and "N/A" / "n/a" placeholder values from LLM output
+function isReal(v: unknown): boolean {
+  if (!v) return false;
+  return !/^n\/?a$/i.test(String(v).trim());
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-surface-400 mb-4">
-      {children}
-    </h2>
-  );
-}
-
-function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`bg-white border border-surface-200 rounded-xl shadow-sm overflow-hidden ${className}`}>
+    <div className="bg-white border border-surface-200">
+      <div className="px-6 py-4 border-b border-surface-100">
+        <h2 className="text-[10px] tracking-widest-plus uppercase text-surface-400 font-medium">
+          {title}
+        </h2>
+      </div>
       {children}
     </div>
   );
 }
 
-function WarningBadge({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg">
-      <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-      </svg>
-      <span className="text-sm text-amber-800">{children}</span>
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-start gap-4 py-2.5 border-b border-surface-50 last:border-0">
-      <span className="text-xs text-surface-400 w-40 flex-shrink-0 pt-0.5">{label}</span>
-      <span className="text-sm text-surface-800">{value}</span>
-    </div>
-  );
+function SectionBody({ children }: { children: React.ReactNode }) {
+  return <div className="px-6 py-5">{children}</div>;
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default function ReviewPage() {
-  const params = useParams();
+export default function LabPacketPage() {
   const router = useRouter();
+  const params = useParams();
+  const { isAuthenticated, authChecked } = useAuth();
   const experimentId = params.id as string;
 
-  const [experiment, setExperiment] = useState<Experiment | null>(null);
-  const [labPacket, setLabPacket] = useState<LabPacket | null>(null);
+  const [packet, setPacket] = useState<LabPacket | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const [selectedOption, setSelectedOption] = useState<"A" | "B" | "C" | null>("A");
-  const [decision, setDecision] = useState<DecisionState>("idle");
-  const [note, setNote] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.allSettled([
-      getExperiment(experimentId),
-      getLabPacket(experimentId),
-    ]).then(([expRes, lpRes]) => {
-      if (expRes.status === "fulfilled") setExperiment(expRes.value);
-      if (lpRes.status === "fulfilled") setLabPacket(lpRes.value);
-      setLoading(false);
-    });
-  }, [experimentId]);
-
-  async function handleApprove() {
-    setSubmitting(true);
-    try {
-      await startExecution(experimentId).catch(() => {});
-      setSubmitted(true);
-      setTimeout(() => router.push(`/experiments/${experimentId}/quote`), 1200);
-    } finally {
-      setSubmitting(false);
+    if (!authChecked) return;
+    if (!isAuthenticated()) {
+      router.push("/login");
+      return;
     }
-  }
 
-  // ── Derive display values ──────────────────────────────────────────────────
-  const spec = (experiment?.specification ?? {}) as Record<string, unknown>;
-  const hyp = (spec.hypothesis ?? {}) as Record<string, unknown>;
-  const expType = getStr(spec, "experiment_type") ?? "Custom Protocol";
-  const title = labPacket?.title ?? getStr(spec, "title") ?? `${expType.replace(/_/g, " ")} Feasibility Summary`;
-  const objective = labPacket?.objective ?? getStr(hyp, "statement") ?? "Characterize the dose-response relationship and determine IC₅₀ values.";
-  const budget = getNum(spec, "turnaround_budget", "budget_max_usd");
-  const turnaroundDays = getNum(spec, "turnaround_budget", "desired_turnaround_days");
-  const bsl = getStr(spec, "compliance", "bsl") ?? "BSL1";
+    async function load() {
+      try {
+        const data = await getLabPacket(experimentId);
+        setPacket(data);
+      } catch (err) {
+        if (err instanceof ApiError && err.status !== 404) {
+          setError(err.message);
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
 
-  // Cost mockup — would come from CRO's feasibility in a real system
-  const costRows = [
-    { label: "Enzymes & biologics", value: 620 },
-    { label: "Reagents & consumables", value: 340 },
-    { label: "Labour", value: 580 },
-    { label: "Instrument time", value: 180 },
-    { label: "QC & reporting", value: 120 },
-  ];
-  const costTotal = costRows.reduce((s, r) => s + r.value, 0);
-  const costDelta = budget != null ? costTotal - budget : null;
+    load();
+  }, [authChecked, isAuthenticated, router, experimentId]);
+
+  const handleGenerate = async (force = false) => {
+    setGenerating(true);
+    setError("");
+    try {
+      const data = await generateLabPacket(experimentId, force);
+      setPacket(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Generation failed");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -143,295 +96,402 @@ export default function ReviewPage() {
     <>
       <ExperimentProgressRail experimentId={experimentId} currentStep="lab-packet" />
 
-      <div className="max-w-[900px] mx-auto px-4 sm:px-6 py-10 pb-36 space-y-10">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {error && (
+          <div className="alert-error mb-6">{error}</div>
+        )}
 
-        {/* ── HEADER ── */}
-        <div>
-          <div className="flex items-start justify-between gap-4 mb-3">
-            <div>
-              <p className="text-[10px] font-medium uppercase tracking-widest text-surface-400 mb-1">
-                Feasibility Review
-              </p>
-              <h1 className="text-2xl font-semibold text-surface-900 leading-snug">{title}</h1>
+        {/* No packet yet — generate */}
+        {!packet && (
+          <div className="bg-white border border-surface-200 p-12 text-center">
+            <div className="w-12 h-12 bg-surface-900 flex items-center justify-center mx-auto mb-6">
+              <span className="text-accent font-display text-xl">P</span>
             </div>
-            <span className="inline-flex items-center text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full flex-shrink-0 mt-1">
-              Pending Sponsor Approval
-            </span>
+            <h1 className="font-display text-2xl text-surface-900 mb-3">Lab Packet</h1>
+            <p className="text-surface-500 text-sm max-w-md mx-auto mb-8">
+              Generate a detailed, bench-ready protocol with step-by-step instructions,
+              reagents, acceptance criteria, and deliverables.
+            </p>
+            <button
+              onClick={() => handleGenerate()}
+              disabled={generating}
+              className="btn-primary text-xs"
+            >
+              {generating ? (
+                <span className="flex items-center gap-2">
+                  <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                  Generating...
+                </span>
+              ) : (
+                "Generate Lab Packet"
+              )}
+            </button>
           </div>
-          <div className="flex flex-wrap gap-5 mt-4">
-            {[
-              { label: "Study ID", value: experimentId.slice(0, 8).toUpperCase() },
-              { label: "BSL", value: bsl },
-                ...(budget != null ? [{ label: "Budget", value: `$${budget.toLocaleString()}` }] : []),
-              ...(turnaroundDays != null ? [{ label: "Requested turnaround", value: `${turnaroundDays} days` }] : []),
-              { label: "Assay type", value: expType.replace(/_/g, " ") },
-            ].filter(Boolean).map(({ label, value }) => (
-              <div key={label} className="flex items-baseline gap-1.5">
-                <span className="text-[10px] uppercase tracking-wider text-surface-400">{label}</span>
-                <span className="text-xs font-semibold text-surface-700">{value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        )}
 
-        {/* ── SECTION 1: STUDY SUMMARY ── */}
-        <section>
-          <SectionTitle>1 — Study Summary</SectionTitle>
-          <Card>
-            <div className="px-6 py-5">
-              <Row label="Objective" value={objective} />
-              <Row label="Assay type" value={expType.replace(/_/g, " ")} />
-              <Row label="Method" value="Fluorogenic substrate assay" />
-              <Row label="BSL" value={bsl} />
-              {budget != null && <Row label="Sponsor budget" value={`$${budget.toLocaleString()}`} />}
-              {turnaroundDays != null && <Row label="Requested turnaround" value={`${turnaroundDays} days`} />}
+        {packet && (
+          <div className="space-y-5">
+
+            {/* ── Header ── */}
+            <div className="bg-white border border-surface-200">
+              <div className="px-6 py-5 border-b border-surface-100 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[10px] tracking-widest-plus uppercase text-surface-400 mb-1">
+                    Lab Packet
+                  </p>
+                  <h1 className="text-xl font-semibold text-surface-900 leading-snug">
+                    {packet.title}
+                  </h1>
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <button
+                    onClick={() => handleGenerate(true)}
+                    disabled={generating}
+                    className="btn-secondary text-[10px] px-3 py-1.5"
+                  >
+                    {generating ? "Regenerating..." : "Regenerate"}
+                  </button>
+                  <button
+                    onClick={() => router.push(`/experiments/${experimentId}/matching`)}
+                    className="btn-primary text-xs px-4 py-1.5"
+                  >
+                    Send to Lab →
+                  </button>
+                </div>
+              </div>
+
+              {/* Objective */}
+              <div className="px-6 py-5 border-b border-surface-100">
+                <h2 className="text-[10px] tracking-widest-plus uppercase text-surface-400 mb-2">
+                  Objective
+                </h2>
+                <p className="text-sm text-surface-700 leading-relaxed">{packet.objective}</p>
+              </div>
             </div>
-          </Card>
-        </section>
 
-        {/* ── SECTION 2: CRO INTERPRETATION ── */}
-        <section>
-          <SectionTitle>2 — CRO Interpretation</SectionTitle>
-          <Card>
-            <div className="px-6 py-5 space-y-3">
-              {[
-                { status: "pass", text: "Assay SOP validated and on file" },
-                { status: "pass", text: "Primary enzyme panel confirmed in-house" },
-                { status: "warn", text: "HDAC3/NCoR2 enzyme: low stock — 7-day lead time required" },
-                { status: "warn", text: "Reference control: external sourcing required (~5 days)" },
-                { status: "pass", text: "Assay feasibility confirmed across full panel" },
-                { status: "info", text: "Minor scope adjustment may be required for HDAC3 continuity" },
-              ].map((item, i) => (
-                <div key={i} className="flex items-start gap-3">
-                  {item.status === "pass" && (
-                    <svg className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                  {item.status === "warn" && (
-                    <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                    </svg>
-                  )}
-                  {item.status === "info" && (
-                    <svg className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 110 20A10 10 0 0112 2z" />
-                    </svg>
-                  )}
-                  <span className="text-sm text-surface-700">{item.text}</span>
+            {/* ── Study Parameters ── */}
+            {packet.study_parameters && (
+              <Section title="Study Parameters">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-surface-100">
+                  {Object.entries(packet.study_parameters)
+                    .filter(([, v]) => isReal(v))
+                    .map(([key, value]) => (
+                      <div key={key} className="bg-white px-5 py-4">
+                        <p className="text-[10px] text-surface-400 mb-1">
+                          {key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                        </p>
+                        <p className="text-sm font-semibold text-surface-900">{value}</p>
+                      </div>
+                    ))}
                 </div>
-              ))}
-            </div>
-          </Card>
-        </section>
+              </Section>
+            )}
 
-        {/* ── SECTION 3: COST & TIMELINE ── */}
-        <section>
-          <SectionTitle>3 — Cost & Timeline</SectionTitle>
-          <div className="grid grid-cols-2 gap-5">
-            {/* Timeline */}
-            <Card>
-              <div className="px-5 pt-4 pb-3 border-b border-surface-100">
-                <p className="text-[10px] font-medium uppercase tracking-widest text-surface-400">Timeline</p>
-              </div>
-              <div className="px-5 py-4 space-y-2">
-                {[
-                  ["Lab setup", "2 days"],
-                  ["Assay execution", "3 days"],
-                  ["Data analysis", "4 days"],
-                  ["Report writing", "3 days"],
-                ].map(([phase, dur]) => (
-                  <div key={phase} className="flex items-center justify-between">
-                    <span className="text-xs text-surface-500">{phase}</span>
-                    <span className="text-xs font-medium text-surface-700">{dur}</span>
-                  </div>
-                ))}
-                <div className="pt-2 border-t border-surface-100 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-surface-800">Total</span>
-                  <span className="text-xs font-bold text-accent">12 business days</span>
+            {/* ── Test Articles ── */}
+            {packet.test_articles && packet.test_articles.length > 0 && (
+              <Section title="Test Articles">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-surface-100 text-[10px] tracking-widest-plus uppercase text-surface-400">
+                        <th className="text-left px-6 py-3 font-medium">ID</th>
+                        <th className="text-left px-6 py-3 font-medium">Role</th>
+                        <th className="text-left px-6 py-3 font-medium">Top Conc.</th>
+                        <th className="text-left px-6 py-3 font-medium">Dilution</th>
+                        <th className="text-left px-6 py-3 font-medium">Vehicle</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-surface-50">
+                      {packet.test_articles.map((ta, i) => (
+                        <tr key={i} className="text-surface-700">
+                          <td className="px-6 py-3 font-medium text-surface-900">{ta.id}</td>
+                          <td className="px-6 py-3 text-surface-500">{ta.role}</td>
+                          <td className="px-6 py-3 font-mono text-xs">{ta.top_concentration || "—"}</td>
+                          <td className="px-6 py-3 text-xs">{ta.dilution_scheme || "—"}</td>
+                          <td className="px-6 py-3 text-xs">{ta.vehicle || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </div>
-              <div className="px-5 pb-4 grid grid-cols-2 gap-2">
-                <div className="bg-surface-50 rounded-lg px-3 py-2.5">
-                  <p className="text-[10px] text-surface-400 uppercase tracking-wider mb-0.5">Start</p>
-                  <p className="text-xs font-semibold text-surface-800">Apr 28, 2026</p>
-                </div>
-                <div className="bg-surface-50 rounded-lg px-3 py-2.5">
-                  <p className="text-[10px] text-surface-400 uppercase tracking-wider mb-0.5">Delivery</p>
-                  <p className="text-xs font-semibold text-surface-800">May 14, 2026</p>
-                </div>
-              </div>
-            </Card>
-
-            {/* Cost */}
-            <Card>
-              <div className="px-5 pt-4 pb-3 border-b border-surface-100">
-                <p className="text-[10px] font-medium uppercase tracking-widest text-surface-400">Cost Breakdown</p>
-              </div>
-              <div className="px-5 py-4 space-y-2">
-                {costRows.map(({ label, value }) => (
-                  <div key={label} className="flex items-center justify-between">
-                    <span className="text-xs text-surface-500">{label}</span>
-                    <span className="text-xs font-medium text-surface-700">${value.toLocaleString()}</span>
-                  </div>
-                ))}
-                <div className="pt-2 border-t border-surface-100 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-surface-800">CRO total</span>
-                  <span className="text-xs font-bold text-surface-900">${costTotal.toLocaleString()}</span>
-                </div>
-                {budget != null && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-surface-400">Sponsor budget</span>
-                    <span className="text-xs text-surface-500">${budget.toLocaleString()}</span>
+                {packet.compound_supply_instructions && (
+                  <div className="mx-6 mb-5 mt-1 bg-amber-50 border border-amber-200 rounded-md px-4 py-3">
+                    <p className="text-xs text-amber-800 leading-relaxed">
+                      <span className="font-semibold">Sponsor supply: </span>
+                      {packet.compound_supply_instructions}
+                    </p>
                   </div>
                 )}
-              </div>
-              {costDelta != null && (
-                <div className={`mx-5 mb-4 flex items-center gap-2 px-3 py-2 rounded-lg border text-xs ${costDelta > 0 ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-emerald-50 border-emerald-200 text-emerald-700"}`}>
-                  {costDelta > 0
-                    ? `⚠ +$${costDelta.toLocaleString()} over budget — minor flex required`
-                    : `✓ $${Math.abs(costDelta).toLocaleString()} under budget`}
-                </div>
-              )}
-            </Card>
-          </div>
-        </section>
-
-        {/* ── SECTION 4: RISKS & CONSTRAINTS ── */}
-        <section>
-          <SectionTitle>4 — Risks & Constraints</SectionTitle>
-          <div className="space-y-3">
-            <WarningBadge>HDAC3/NCoR2 low stock may delay assay start by up to 7 days</WarningBadge>
-            {costDelta != null && costDelta > 0 && (
-              <WarningBadge>Slight budget overrun (${costDelta.toLocaleString()}) — sponsor approval for flex required</WarningBadge>
+              </Section>
             )}
-            <WarningBadge>Multi-target enzyme panel increases QC complexity and reporting time</WarningBadge>
-          </div>
-        </section>
 
-        {/* ── SECTION 5: RECOMMENDATION OPTIONS ── */}
-        <section>
-          <SectionTitle>5 — CRO Recommendation Options</SectionTitle>
-          <div className="grid grid-cols-3 gap-4">
-            {[
-              {
-                key: "A" as const,
-                tag: "Recommended",
-                label: "Approve as-is",
-                bullets: ["Minor budget flex required (+$40)", "Fastest start date (Apr 28)", "Full 4-isoform selectivity dataset"],
-                color: "border-accent/30 bg-accent/5",
-                tagColor: "bg-accent/10 text-accent",
-                selectedColor: "border-accent ring-2 ring-accent/30",
-              },
-              {
-                key: "B" as const,
-                tag: "Cost saving",
-                label: "Remove HDAC3",
-                bullets: ["Reduces cost ~$120", "Eliminates lead-time risk", "Weaker selectivity dataset"],
-                color: "border-surface-200 bg-white",
-                tagColor: "bg-surface-100 text-surface-500",
-                selectedColor: "border-surface-400 ring-2 ring-surface-300",
-              },
-              {
-                key: "C" as const,
-                tag: "Low risk",
-                label: "Delay start 5 days",
-                bullets: ["Buffer for reagent procurement", "No scope changes", "Delivery shifts to ~May 19"],
-                color: "border-surface-200 bg-white",
-                tagColor: "bg-surface-100 text-surface-500",
-                selectedColor: "border-surface-400 ring-2 ring-surface-300",
-              },
-            ].map(opt => (
-              <button
-                key={opt.key}
-                onClick={() => setSelectedOption(opt.key)}
-                className={`text-left rounded-xl border p-4 transition-all ${selectedOption === opt.key ? opt.selectedColor : opt.color} hover:shadow-sm`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${opt.tagColor}`}>{opt.tag}</span>
-                  <span className={`w-4 h-4 rounded-full border-2 flex-shrink-0 transition-colors ${selectedOption === opt.key ? "border-accent bg-accent" : "border-surface-300"}`} />
-                </div>
-                <p className="text-sm font-semibold text-surface-900 mb-2">{opt.label}</p>
-                <ul className="space-y-1.5">
-                  {opt.bullets.map(b => (
-                    <li key={b} className="text-xs text-surface-500 flex items-start gap-1.5">
-                      <span className="text-surface-300 flex-shrink-0 mt-0.5">•</span>{b}
-                    </li>
+            {/* ── Cell Requirements ── */}
+            {(() => {
+              if (!packet.cell_requirements) return null;
+              const rows = Object.entries(packet.cell_requirements).filter(([, v]) => isReal(v));
+              if (rows.length === 0) return null;
+              return (
+                <Section title="Cell Culture Requirements">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-surface-100">
+                    {rows.map(([key, value]) => (
+                      <div key={key} className="bg-white px-5 py-4">
+                        <p className="text-[10px] text-surface-400 mb-1">
+                          {key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                        </p>
+                        <p className="text-sm text-surface-700 leading-relaxed">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </Section>
+              );
+            })()}
+
+            {/* ── Protocol Steps ── */}
+            {packet.protocol_steps && packet.protocol_steps.length > 0 && (
+              <Section title="Protocol — Step by Step">
+                <div className="divide-y divide-surface-100">
+                  {packet.protocol_steps.map((step, i) => (
+                    <div key={i} className="px-6 py-5 flex gap-4">
+                      <div className="flex-shrink-0 w-8 h-8 bg-surface-900 text-white text-xs font-bold flex items-center justify-center rounded-sm">
+                        {step.step}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline gap-2 mb-2">
+                          <h3 className="text-sm font-semibold text-surface-900">{step.title}</h3>
+                          {step.day && (
+                            <span className="text-[10px] font-mono text-surface-400">{step.day}</span>
+                          )}
+                        </div>
+                        <p className="text-sm text-surface-700 leading-relaxed">{step.procedure}</p>
+                        {step.critical_notes && (
+                          <p className="text-xs text-surface-500 italic mt-2 leading-relaxed">
+                            &#9632; {step.critical_notes}
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   ))}
-                </ul>
-              </button>
-            ))}
-          </div>
-        </section>
-      </div>
-
-      {/* ── STICKY BOTTOM BAR ── */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-surface-200 px-6 py-4">
-        {!submitted ? (
-          <div className="max-w-[900px] mx-auto space-y-3">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setDecision(d => d === "approved" ? "idle" : "approved")}
-                className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all border ${decision === "approved" ? "bg-emerald-600 border-emerald-600 text-white ring-2 ring-emerald-400 ring-offset-1" : "bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700"}`}
-              >
-                Approve Study
-              </button>
-              <button
-                onClick={() => setDecision(d => d === "changes" ? "idle" : "changes")}
-                className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all border ${decision === "changes" ? "bg-amber-50 border-amber-400 text-amber-700 ring-2 ring-amber-300 ring-offset-1" : "bg-white border-amber-300 text-amber-700 hover:bg-amber-50"}`}
-              >
-                Request Changes
-              </button>
-              <button
-                onClick={() => setDecision(d => d === "rejected" ? "idle" : "rejected")}
-                className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all border ${decision === "rejected" ? "bg-red-50 border-red-400 text-red-700 ring-2 ring-red-300 ring-offset-1" : "bg-white border-red-200 text-red-600 hover:bg-red-50"}`}
-              >
-                Reject Study
-              </button>
-              {selectedOption && (
-                <span className="ml-auto text-xs text-surface-400">
-                  Option <strong className="text-surface-700">{selectedOption}</strong> selected
-                </span>
-              )}
-            </div>
-            {decision !== "idle" && (
-              <div className="flex items-start gap-3">
-                <textarea
-                  rows={2}
-                  value={note}
-                  onChange={e => setNote(e.target.value)}
-                  placeholder={
-                    decision === "approved" ? "Optional note to CRO (e.g. confirm kickoff date)…" :
-                    decision === "changes" ? "Describe requested changes…" :
-                    "Reason for rejection…"
-                  }
-                  className="flex-1 text-sm text-surface-800 placeholder:text-surface-400 border border-surface-200 rounded-lg px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
-                />
-                <button
-                  onClick={decision === "approved" ? handleApprove : () => setSubmitted(true)}
-                  disabled={submitting || (decision !== "approved" && !note.trim())}
-                  className="btn text-sm py-2.5 px-6 flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {submitting ? "Submitting…" : "Submit"}
-                </button>
-              </div>
+                </div>
+              </Section>
             )}
-          </div>
-        ) : (
-          <div className="max-w-[900px] mx-auto flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
-                <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <p className="text-sm font-semibold text-surface-900">
-                {decision === "approved" ? "Study approved — moving to execution" : "Decision submitted"}
-              </p>
+
+            {/* ── Legacy: Design (v1 packets) ── */}
+            {!packet.protocol_steps && packet.design && (
+              <Section title="Experimental Design">
+                <SectionBody>
+                  {packet.design.overview && (
+                    <p className="text-sm text-surface-700 mb-4">{packet.design.overview}</p>
+                  )}
+                  {packet.design.work_packages.length > 0 && (
+                    <div className="space-y-3">
+                      {packet.design.work_packages.map((wp, i) => (
+                        <div key={i} className="flex gap-3">
+                          <span className="flex-shrink-0 w-6 h-6 bg-surface-100 text-surface-500 text-xs font-mono flex items-center justify-center">
+                            {i + 1}
+                          </span>
+                          <p className="text-sm text-surface-700">{wp}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {packet.design.controls.length > 0 && (
+                    <ul className="mt-4 space-y-2">
+                      {packet.design.controls.map((c, i) => (
+                        <li key={i} className="text-sm text-surface-700 pl-3 border-l-2 border-surface-200">{c}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {packet.design.success_criteria.length > 0 && (
+                    <ul className="mt-4 space-y-2">
+                      {packet.design.success_criteria.map((sc, i) => (
+                        <li key={i} className="flex gap-2 text-sm text-surface-700">
+                          <span className="text-accent mt-0.5">&#10003;</span>{sc}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </SectionBody>
+              </Section>
+            )}
+
+            {/* ── Reagents & Consumables ── */}
+            {packet.reagents_and_consumables && packet.reagents_and_consumables.length > 0 && (
+              <Section title="Reagents and Consumables">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-surface-100 text-[10px] tracking-widest-plus uppercase text-surface-400">
+                        <th className="text-left px-6 py-3 font-medium">Item</th>
+                        <th className="text-left px-6 py-3 font-medium">Specification</th>
+                        <th className="text-left px-6 py-3 font-medium">Supplier</th>
+                        <th className="text-left px-6 py-3 font-medium">Catalog #</th>
+                        <th className="text-left px-6 py-3 font-medium">Link</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-surface-50">
+                      {packet.reagents_and_consumables.map((r, i) => (
+                        <tr key={i} className="text-surface-700">
+                          <td className="px-6 py-3 font-medium text-surface-900">{r.item}</td>
+                          <td className="px-6 py-3 text-surface-500 text-xs">{r.specification || "—"}</td>
+                          <td className="px-6 py-3 text-surface-500">{r.supplier || "—"}</td>
+                          <td className="px-6 py-3 font-mono text-xs text-surface-500">{r.catalog_or_id || "—"}</td>
+                          <td className="px-6 py-3">
+                            {r.link ? (
+                              <a href={r.link} target="_blank" rel="noopener noreferrer"
+                                className="text-accent hover:text-accent-dim text-xs underline">
+                                View
+                              </a>
+                            ) : <span className="text-surface-300">—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Section>
+            )}
+
+            {/* ── Legacy: Materials (v1 packets) ── */}
+            {!packet.reagents_and_consumables && packet.materials && packet.materials.length > 0 && (
+              <Section title="Materials">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-surface-100 text-[10px] tracking-widest-plus uppercase text-surface-400">
+                        <th className="text-left px-6 py-3 font-medium">Item</th>
+                        <th className="text-left px-6 py-3 font-medium">Supplier</th>
+                        <th className="text-left px-6 py-3 font-medium">Catalog #</th>
+                        <th className="text-left px-6 py-3 font-medium">Link</th>
+                        <th className="text-left px-6 py-3 font-medium">Purpose</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-surface-50">
+                      {packet.materials.map((m, i) => (
+                        <tr key={i} className="text-surface-700">
+                          <td className="px-6 py-3 font-medium">{m.item}</td>
+                          <td className="px-6 py-3 text-surface-500">{m.supplier || "—"}</td>
+                          <td className="px-6 py-3 font-mono text-xs text-surface-500">{m.catalog_or_id || "—"}</td>
+                          <td className="px-6 py-3">
+                            {m.link ? (
+                              <a href={m.link} target="_blank" rel="noopener noreferrer"
+                                className="text-accent hover:text-accent-dim text-xs underline">View</a>
+                            ) : <span className="text-surface-300">—</span>}
+                          </td>
+                          <td className="px-6 py-3 text-surface-500">{m.purpose || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Section>
+            )}
+
+            {/* ── Acceptance Criteria ── */}
+            {packet.acceptance_criteria && packet.acceptance_criteria.length > 0 && (
+              <Section title="Acceptance Criteria">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-surface-100 text-[10px] tracking-widest-plus uppercase text-surface-400">
+                        <th className="text-left px-6 py-3 font-medium">Parameter</th>
+                        <th className="text-left px-6 py-3 font-medium">Requirement</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-surface-50">
+                      {packet.acceptance_criteria.map((ac, i) => (
+                        <tr key={i} className="text-surface-700">
+                          <td className="px-6 py-3 text-surface-600">{ac.parameter}</td>
+                          <td className="px-6 py-3 font-medium text-surface-900">{ac.requirement}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Section>
+            )}
+
+            {/* ── Deliverables ── */}
+            {packet.deliverables && packet.deliverables.length > 0 && (
+              <Section title="Deliverables">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-surface-100 text-[10px] tracking-widest-plus uppercase text-surface-400">
+                        <th className="text-left px-6 py-3 font-medium w-48">Deliverable</th>
+                        <th className="text-left px-6 py-3 font-medium">Description</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-surface-50">
+                      {packet.deliverables.map((d, i) => (
+                        <tr key={i} className="text-surface-700">
+                          <td className="px-6 py-3 font-medium text-surface-900 align-top">{d.name}</td>
+                          <td className="px-6 py-3 text-surface-600 text-xs leading-relaxed">{d.description}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Section>
+            )}
+
+            {/* ── Sponsor Inputs ── */}
+            {packet.sponsor_provided_inputs && packet.sponsor_provided_inputs.length > 0 && (
+              <Section title="Sponsor-Provided Inputs">
+                <SectionBody>
+                  <ul className="space-y-2">
+                    {packet.sponsor_provided_inputs.map((item, i) => (
+                      <li key={i} className="flex gap-2 text-sm text-surface-700">
+                        <span className="text-surface-300 mt-0.5 flex-shrink-0">&#9744;</span>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </SectionBody>
+              </Section>
+            )}
+
+            {/* ── Legacy: Handoff (v1) ── */}
+            {!packet.sponsor_provided_inputs && packet.handoff_package_for_lab && packet.handoff_package_for_lab.length > 0 && (
+              <Section title="Handoff Checklist">
+                <SectionBody>
+                  <ul className="space-y-2">
+                    {packet.handoff_package_for_lab.map((item, i) => (
+                      <li key={i} className="flex gap-2 text-sm text-surface-700">
+                        <span className="text-surface-300 mt-0.5">&#9744;</span>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </SectionBody>
+              </Section>
+            )}
+
+            {/* ── Protocol References ── */}
+            {packet.protocol_references && packet.protocol_references.length > 0 && (
+              <Section title="Protocol References">
+                <div className="divide-y divide-surface-50">
+                  {packet.protocol_references.map((ref, i) => (
+                    <div key={i} className="px-6 py-4">
+                      <p className="text-sm font-medium text-surface-800">{ref.title}</p>
+                      {ref.use && (
+                        <p className="text-xs text-surface-500 mt-0.5 leading-relaxed">{ref.use}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {/* ── Bottom CTA ── */}
+            <div className="flex justify-end pt-2 pb-8">
+              <button
+                onClick={() => router.push(`/experiments/${experimentId}/matching`)}
+                className="btn-primary text-sm px-6 py-2.5"
+              >
+                Send to Lab →
+              </button>
             </div>
-            <button onClick={() => { setSubmitted(false); setDecision("idle"); setNote(""); }} className="btn-ghost text-xs px-3 py-1.5">
-              Revise
-            </button>
+
           </div>
         )}
       </div>

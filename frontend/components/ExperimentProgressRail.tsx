@@ -2,35 +2,51 @@
 
 import Link from "next/link";
 
-type Step = "detail" | "matching" | "lab-packet" | "quote" | "review" | "results";
+type Step = "detail" | "matching" | "lab-packet" | "review" | "results";
 
 interface ExperimentProgressRailProps {
   experimentId: string;
   currentStep: Step;
+  /** Optional experiment status — used to keep completed checkmarks when navigating backwards */
+  experimentStatus?: string;
 }
 
+
 const STEPS: { key: Step; label: string; href: (id: string) => string }[] = [
-  { key: "detail",     label: "Protocol",   href: (id) => `/experiments/${id}` },
-  { key: "matching",   label: "Send",        href: (id) => `/experiments/${id}/matching` },
-  { key: "lab-packet", label: "Lab Packet",  href: (id) => `/experiments/${id}/lab-packet` },
-  { key: "quote",      label: "Quote",       href: (id) => `/experiments/${id}/quote` },
-  { key: "review",     label: "Review",      href: (id) => `/experiments/${id}/review` },
-  { key: "results",    label: "Results",     href: (id) => `/experiments/${id}/results` },
+  { key: "detail",   label: "Protocol", href: (id) => `/experiments/${id}` },
+  { key: "matching", label: "Send",     href: (id) => `/experiments/${id}/matching` },
+  { key: "review",   label: "Review",   href: (id) => `/experiments/${id}/review` },
+  { key: "results",  label: "Results",  href: (id) => `/experiments/${id}/results` },
 ];
+
+/** Maps experiment status → the index of the step the workflow has reached.
+ *  Returns -1 for draft/unknown (fall back to currentIndex). */
+function statusToWorkflowIndex(status?: string): number {
+  if (!status) return -1;
+  if (status === "completed")                                return STEPS.length; // all done
+  if (status === "in_progress")                             return 2; // on Review
+  if (status === "claimed" || status === "design_finalized") return 2; // on Review
+  if (status === "open")                                    return 2; // on Review
+  return -1; // draft / pending_review — use currentStep as floor
+}
 
 export function ExperimentProgressRail({
   experimentId,
   currentStep,
+  experimentStatus,
 }: ExperimentProgressRailProps) {
-  const currentIndex = STEPS.findIndex((s) => s.key === currentStep);
+  const currentIndex  = STEPS.findIndex((s) => s.key === currentStep);
+  const workflowIndex = statusToWorkflowIndex(experimentStatus);
+  // Checkmarks reflect the furthest step reached, regardless of which page is open
+  const completedFloor = Math.max(currentIndex, workflowIndex);
 
   return (
     <div className="sticky top-14 z-40 bg-white border-b border-surface-200">
       <div className="max-w-4xl mx-auto px-6 lg:px-8">
         <nav className="flex items-center h-11 gap-0.5">
           {STEPS.map((step, i) => {
-            const isCurrent = step.key === currentStep;
-            const isCompleted = i < currentIndex;
+            const isCurrent   = step.key === currentStep;
+            const isCompleted = i < completedFloor;
 
             return (
               <div key={step.key} className="flex items-center gap-0.5">

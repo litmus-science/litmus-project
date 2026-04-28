@@ -132,7 +132,7 @@ export default function ResultsPage() {
   if (loading) {
     return (
       <>
-        <ExperimentProgressRail experimentId={experimentId} currentStep="results" />
+        <ExperimentProgressRail experimentId={experimentId} currentStep="results" experimentStatus={experiment?.status} />
         <div className="flex items-center justify-center min-h-[50vh]">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
         </div>
@@ -143,7 +143,7 @@ export default function ResultsPage() {
   if (error && !results) {
     return (
       <>
-        <ExperimentProgressRail experimentId={experimentId} currentStep="results" />
+        <ExperimentProgressRail experimentId={experimentId} currentStep="results" experimentStatus={experiment?.status} />
         <div className="max-w-4xl mx-auto px-4 py-8">
           <div className="alert-error">{error}</div>
         </div>
@@ -158,7 +158,7 @@ export default function ResultsPage() {
   if (notSubmitted) {
     return (
       <>
-        <ExperimentProgressRail experimentId={experimentId} currentStep="results" />
+        <ExperimentProgressRail experimentId={experimentId} currentStep="results" experimentStatus={experiment?.status} />
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12 flex flex-col items-center text-center">
           <div className="w-14 h-14 rounded-full bg-surface-100 flex items-center justify-center mb-4">
             <svg className="w-6 h-6 text-surface-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -181,57 +181,10 @@ export default function ResultsPage() {
   }
 
   if (awaitingResults) {
-    const previews = [
-      {
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-          </svg>
-        ),
-        title: "Dose–response curves",
-        desc: "IC50 / EC50 with 4PL fit and confidence bounds",
-      },
-      {
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M3 14h18M10 3v18M14 3v18" />
-          </svg>
-        ),
-        title: "Structured measurements",
-        desc: "Parsed values, units, and conditions in a reviewable table",
-      },
-      {
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-          </svg>
-        ),
-        title: "Hypothesis verdict",
-        desc: "Supported / not supported with statistical confidence",
-      },
-      {
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-          </svg>
-        ),
-        title: "Raw data & documentation",
-        desc: "Original data files, photos, and operator notes from the CRO",
-      },
-      {
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-          </svg>
-        ),
-        title: "Approve or dispute",
-        desc: "Rate the CRO, give feedback, or file a formal dispute",
-      },
-    ];
 
     return (
       <>
-        <ExperimentProgressRail experimentId={experimentId} currentStep="results" />
+        <ExperimentProgressRail experimentId={experimentId} currentStep="results" experimentStatus={experiment?.status} />
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-6">
           {/* Status indicator */}
           <div className="flex flex-col items-center text-center">
@@ -348,7 +301,7 @@ export default function ResultsPage() {
 
   return (
     <>
-      <ExperimentProgressRail experimentId={experimentId} currentStep="results" />
+      <ExperimentProgressRail experimentId={experimentId} currentStep="results" experimentStatus={experiment?.status} />
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="card">

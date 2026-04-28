@@ -265,6 +265,7 @@ function Toggle({
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function VerdictBadge({ verdict }: { verdict: ReturnType<typeof computeFeasibility>["verdict"] }) {
   const map = {
     feasible: { bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-800", dot: "bg-emerald-500", label: "Feasible" },
@@ -281,6 +282,7 @@ function VerdictBadge({ verdict }: { verdict: ReturnType<typeof computeFeasibili
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function RiskFlag({ level, message }: { level: "warn" | "error"; message: string }) {
   if (level === "error") {
     return (
@@ -396,6 +398,7 @@ export default function CroReviewCockpit({ study }: { study: StudyContext }) {
   };
 
   // ── Recommended options ──────────────────────────────────────────────────────
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const options = [
     {
       key: "A",

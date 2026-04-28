@@ -117,7 +117,7 @@ export default function QuotePage() {
   if (loading) {
     return (
       <>
-        <ExperimentProgressRail experimentId={experimentId} currentStep="quote" />
+        <ExperimentProgressRail experimentId={experimentId} currentStep="review" experimentStatus={experiment?.status} />
         <div className="flex items-center justify-center min-h-[50vh]">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
         </div>
@@ -128,7 +128,7 @@ export default function QuotePage() {
   if (error || !experiment) {
     return (
       <>
-        <ExperimentProgressRail experimentId={experimentId} currentStep="quote" />
+        <ExperimentProgressRail experimentId={experimentId} currentStep="review" experimentStatus={experiment?.status} />
         <div className="max-w-2xl mx-auto px-4 py-8">
           <div className="alert-error">{error || "Experiment not found"}</div>
         </div>
@@ -146,7 +146,7 @@ export default function QuotePage() {
 
   return (
     <>
-      <ExperimentProgressRail experimentId={experimentId} currentStep="quote" />
+      <ExperimentProgressRail experimentId={experimentId} currentStep="review" />
 
       <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         <div className="mb-8">

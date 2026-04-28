@@ -89,6 +89,7 @@ from backend.models import (
     get_db,
     init_db,
 )
+from backend.services.agentmail_service import fetch_new_messages, provision_inbox
 from backend.models import (
     ConfidenceLevel as DBConfidenceLevel,
 )
@@ -1410,6 +1411,129 @@ async def list_experiment_notes(
             for note, email in rows
         ]
     }
+
+
+# ── AgentMail inbox endpoints ─────────────────────────────────────────────────
+
+@app.post("/experiments/{experiment_id}/inbox", tags=["Inbox"])
+async def provision_experiment_inbox(
+    experiment_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Provision (or retrieve) an AgentMail inbox for this experiment.
+
+    Idempotent — safe to call multiple times. Returns the inbox email address.
+    """
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
+    experiment = result.scalar_one_or_none()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if experiment.requester_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Already provisioned — just return it
+    if experiment.inbox_id and experiment.inbox_address:
+        return {"inbox_id": experiment.inbox_id, "inbox_address": experiment.inbox_address}
+
+    try:
+        inbox_id, inbox_address = await provision_inbox(experiment_id)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    experiment.inbox_id = inbox_id
+    experiment.inbox_address = inbox_address
+    await db.commit()
+
+    return {"inbox_id": inbox_id, "inbox_address": inbox_address}
+
+
+@app.get("/experiments/{experiment_id}/inbox", tags=["Inbox"])
+async def get_experiment_inbox(
+    experiment_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Return the AgentMail inbox address for this experiment, or null if not provisioned."""
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
+    experiment = result.scalar_one_or_none()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if experiment.requester_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return {
+        "inbox_id": experiment.inbox_id,
+        "inbox_address": experiment.inbox_address,
+    }
+
+
+@app.post("/experiments/{experiment_id}/inbox/sync", tags=["Inbox"])
+async def sync_experiment_inbox(
+    experiment_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Pull new messages from AgentMail and write them as ExperimentNote records.
+
+    Skips messages already ingested (deduped by external_id).
+    Returns the count of newly created notes.
+    """
+    result = await db.execute(select(ExperimentModel).where(ExperimentModel.id == experiment_id))
+    experiment = result.scalar_one_or_none()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if experiment.requester_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not experiment.inbox_id:
+        raise HTTPException(status_code=409, detail="Inbox not provisioned yet")
+
+    # Collect already-ingested external IDs
+    existing = await db.execute(
+        select(ExperimentNote.external_id)
+        .where(
+            ExperimentNote.experiment_id == experiment_id,
+            ExperimentNote.external_id.isnot(None),
+        )
+    )
+    known_ids: set[str] = {row[0] for row in existing.all()}
+
+    try:
+        new_messages = await fetch_new_messages(experiment.inbox_id, known_ids)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    created = 0
+    for msg in new_messages:
+        subject = msg["subject"]
+        from_addr = msg["from_"]
+        body = msg["body"]
+        kind_str = msg["kind"]
+        external_id = msg["external_id"]
+        timestamp = msg["timestamp"]
+
+        try:
+            note_kind = DBNoteKind(kind_str)
+        except ValueError:
+            note_kind = DBNoteKind.EMAIL
+
+        content = f"From: {from_addr}\nSubject: {subject}\n\n{body}"
+
+        note = ExperimentNote(
+            experiment_id=experiment_id,
+            author_id=experiment.requester_id,
+            kind=note_kind,
+            content=content,
+            external_id=str(external_id),
+            created_at=timestamp if hasattr(timestamp, "year") else datetime.utcnow(),
+        )
+        db.add(note)
+        created += 1
+
+    if created:
+        await db.commit()
+
+    return {"synced": created}
 
 
 @app.post(

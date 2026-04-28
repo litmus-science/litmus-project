@@ -259,6 +259,23 @@ export async function createNote(
   return request<ActivityNote>(`/experiments/${experimentId}/notes`, { method: "POST", body: form });
 }
 
+// AgentMail inbox
+export async function provisionInbox(
+  experimentId: string,
+): Promise<{ inbox_id: string; inbox_address: string }> {
+  return request(`/experiments/${experimentId}/inbox`, { method: "POST" });
+}
+
+export async function getInbox(
+  experimentId: string,
+): Promise<{ inbox_id: string | null; inbox_address: string | null }> {
+  return request(`/experiments/${experimentId}/inbox`);
+}
+
+export async function syncInbox(experimentId: string): Promise<{ synced: number }> {
+  return request(`/experiments/${experimentId}/inbox/sync`, { method: "POST" });
+}
+
 // Results
 export async function uploadResults(
   experimentId: string,
